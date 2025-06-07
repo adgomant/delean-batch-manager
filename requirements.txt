@@ -1,0 +1,7 @@
+click
+polars
+pandas
+openai
+yaml
+tqdm
+tenacity
