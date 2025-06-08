@@ -34,27 +34,33 @@ def write_json(data, path, indent=4, encoding="utf-8"):
         json.dump(data, f, indent=indent)
 
 
-def save_batch_id_map_to_file(batch_ids, path):
+def save_batch_id_map_to_file(batch_id_map, path):
     """
     Save a subfolder -> batch ID map to a JSON file.
     """
-    write_json(batch_ids, path)
-    logging.info(f" Saved {len(batch_ids)} batch IDs to {mask_path(path)}.")
+    if not path.endswith('.json'):
+        raise ValueError("Path must end with .json")
+    write_json(batch_id_map, path)
+    logging.info(f" Saved {len(batch_id_map)} batch IDs to {mask_path(path)}.")
 
 
 def load_batch_id_map_from_file(path):
     """
     Load a subfolder -> batch ID map from a JSON file.
     """
-    batch_ids = read_json(path)
-    logging.info(f"Loaded {len(batch_ids)} batch IDs from {mask_path(path)}.")
-    return batch_ids
+    if not path.endswith('.json'):
+        raise ValueError("Path must end with .json")
+    batch_id_map = read_json(path)
+    logging.info(f"Loaded {len(batch_id_map)} batch IDs from {mask_path(path)}.")
+    return batch_id_map
 
 
 def save_batch_metadata(batch_metadata, path):
     """
     Save the full OpenAI batch job metadata object to JSON.
     """
-    write_json(batch_metadata.model_dump(), path)
+    if not batch_metadata.endswith('.json'):
+        raise ValueError("Path must end with .json")
+    write_json(batch_metadata, path)
     logging.info(f"Saved batch metadata to {mask_path(path)}.")
 

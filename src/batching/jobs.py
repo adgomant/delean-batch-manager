@@ -60,23 +60,30 @@ def launch_batch_job(client, input_file, endpoint='/chat/completions', metadata_
         raise FileNotFoundError(f"Input file not found: {input_file}")
     if os.path.getsize(input_file) == 0:
         raise ValueError(f"Input file is empty: {input_file}")
-    
+
     logging.info(f"Launching batch job for {mask_path(input_file)}...")
+
     batch_file = client.files.create(
         file=open(input_file, 'rb'),
         purpose='batch'
     )
+
     batch_job = client.batches.create(
         input_file_id=batch_file.id,
         endpoint=endpoint,
         completion_window="24h"
     )
-    batch_id = batch_job.id
+
     if metadata_path is None:
         metadata_path = Path(input_file).parent / "batch_metadata.json"
-    save_batch_metadata(batch_job, metadata_path)
-    logging.info(f"Batch job created with ID: {batch_id}")
-    return batch_id
+    else:
+        if os.isdir(metadata_path):
+            metadata_path = os.path.join(metadata_path, "batch_metadata.json")
+    save_batch_metadata(batch_job.model_dump(), metadata_path)
+
+    logging.info(f"Batch job created with ID: {batch_job.id}")
+
+    return batch_job.id
 
 
 def launch_all_batch_jobs(client, base_folder, endpoint="/chat/completions"):
@@ -366,12 +373,12 @@ def download_batch_result(client, batch_id, output_folder, return_summary_dict=F
         file.write(result)
 
     # Save the batch summary
-    batch_metadata = batch_job
+    batch_metadata = batch_job.model_dump()
     metadata_path = os.path.join(output_folder, "batch_metadata.json")
     save_batch_metadata(batch_metadata, metadata_path)
     summary_path = os.path.join(output_folder, "summary.txt")
     summary_dict = save_batch_summary(
-        batch_metadata.model_dump(),
+        batch_metadata,
         result_path,
         summary_path=summary_path,
         return_dict=return_summary_dict
