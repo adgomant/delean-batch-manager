@@ -5,7 +5,7 @@ import openai
 import logging
 import time
 from collections import Counter
-from typing import List, Dict
+from typing import List
 from tqdm.auto import tqdm
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,8 +26,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 LAUNCH_MAX_WORKERS = 3
 DOWNLOAD_MAX_WORKERS = 5
 CHECK_MAX_WORKERS = 8
-
-# Decorator for retrying transient OpenAI errors ---
 
 retry_on_transient_openai_errors = retry(
     retry=retry_if_exception_type((
