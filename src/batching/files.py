@@ -185,6 +185,31 @@ def create_subdomain_batch_input_files(
     return final_paths
 
 
+def extract_demand_level_from_conclusion(conclusion: str) -> float:
+    """
+    Extract the demand level from the conclusion string.
+
+    Args:
+        conclusion (str): The conclusion string from which to extract the demand level.
+
+    Returns:
+        float: The extracted demand level, or NaN if extraction fails.
+    """
+    try:
+        # Extract the last number from the conclusion
+        demand_level = float(re.findall(r'\d+', conclusion)[-1]), True
+        if demand_level < 0 or demand_level > 5:
+            # If the demand level is outside the expected range, result is considered invalid
+            return float('nan'), False
+        if conclusion.startswith(demand_level):
+            # Avoid cases where the only number present in the final statement is a leading section number (yes, this could happen)
+            # e.g., "4. Conclusion: Thus, the level of Attention and Search demanded by the given TASK INSTANCE is: **Not Applicable**"
+            return float('nan'), False
+        return demand_level, True
+    except IndexError:
+        return float('nan'), False
+
+
 def parse_subdomain_batch_output_files(
         base_folder,
         only_levels=False,
@@ -208,11 +233,10 @@ def parse_subdomain_batch_output_files(
             custom_id = item['custom_id']
             finish_reason = item['response']['body']['choices'][0]['finish_reason']
             res = item['response']['body']['choices'][0]['message']['content']
-            *cot_steps, conclusion = res.split('\n\n')
             if finish_reason == 'stop':
-                try:
-                    demand_level = float(re.findall(r'\d', conclusion)[-1])
-                except IndexError:
+                *cot_steps, conclusion = res.split('\n\n')
+                ok, demand_level = extract_demand_level_from_conclusion(conclusion, verbose=verbose)
+                if not ok:
                     if verbose:
                         logging.warning(f"Error extracting demand level from item '{custom_id}' in subdomain '{subdomain}'. Conclusion: '{conclusion}'")
                     demand_level = float('nan')
