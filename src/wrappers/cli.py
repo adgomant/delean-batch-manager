@@ -10,7 +10,7 @@ from ..batching.pricing import get_batch_api_pricing
 from ..batching.files import (
     read_demand_levels_rubric_files,
     create_subdomain_batch_input_files,
-    parse_subdomain_batch_output_files
+    save_parsed_subdomain_batch_output_files_results
 )
 from ..batching.jobs import (
     launch_batch_job,
@@ -293,11 +293,23 @@ def create_input_files(ctx):
     help='Type of parsed output file. Default is "jsonl".'
 )
 @click.option(
+    '--only-levels', is_flag=True, default=False,
+    help='If set, will only include the levels in the output file, excluding finish reasons and completions.'
+)
+@click.option(
+    '--csv-format', type=click.Choice(['long', 'wide'], case_sensitive=False), default='long',
+    help=(
+        'Format of the CSV output file. '
+        '"long" format will have one row per annotation, while "wide" format will have one row per prompt with all levels as columns. '
+        'Note that "wide" will not include finish reasons and completions, only levels, independently of the --only-levels flag.'
+    )
+)
+@click.option(
     '--verbose', is_flag=True, default=True,
-    help='If set, will print detailed information about failures during parsing.'
+    help='If set, logs warnings for any issues encountered when extracting demand levels at instance level.'
 )
 @click.pass_context
-def parse_output_files(ctx, file_type, verbose):
+def parse_output_files(ctx, file_type, only_levels, csv_format, verbose):
     """Parse output JSONL files from OpenAI Batch Jobs. Creates a single JSONL or CSV file with all annotations."""
     base_folder = ctx.obj['base_folder']
     annotations_path = ctx.obj['annotations_folder']
@@ -305,11 +317,12 @@ def parse_output_files(ctx, file_type, verbose):
     output_path = f"{annotations_path}/{run_name}_annotations.{file_type}"
 
     logging.info(f"Parsing batch output files...")
-    parse_subdomain_batch_output_files(
+    save_parsed_subdomain_batch_output_files_results(
         base_folder=base_folder,
         output_path=output_path,
         file_type=file_type,
-        return_pandas=False,
+        only_levels=only_levels,
+        csv_format=csv_format,
         verbose=verbose
     )
 

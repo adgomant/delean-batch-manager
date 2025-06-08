@@ -16,6 +16,7 @@ from ..batching.files import (
     read_demand_levels_rubric_files,
     create_subdomain_batch_input_files,
     parse_subdomain_batch_output_files,
+    save_parsed_subdomain_batch_output_files_results,
 )
 from ..batching.jobs import (
     launch_batch_job,
@@ -115,12 +116,13 @@ class DeLeAnBatchManager:
         rubrics = read_demand_levels_rubric_files(self.rubrics_folder)
         if verbose:
             logging.info("Calculating batch API pricing...")
+        max_tokens = max_completion_tokens or self.max_tokens
         estimated_cost = {}
         for model in openai_model:
             estimated_cost[model] = get_batch_api_pricing(
-                prompts,
-                rubrics,
-                max_completion_tokens or self.max_tokens,
+                prompts=prompts,
+                rubrics=rubrics,
+                max_completion_tokens=max_tokens,
                 openai_model=model,
                 estimation=estimation,
                 n_jobs=n_jobs
@@ -172,35 +174,68 @@ class DeLeAnBatchManager:
 
     def parse_output_files(
             self,
-            output_path: str | Path = None,
-            return_pandas: bool = False,
+            only_levels: bool = False,
             verbose: bool = True
-        ):
+        ) -> dict:
         """
-        Parse output files from batch jobs.
+        Parse all avilable output files in self.base folder from batch jobs.
 
         Args:
-            output_path (str | Path | None): Path to save the parsed output files.
-                If None, uses the base folder.
-            return_pandas (bool): Whether to return results as a pandas DataFrame.
+            only_levels (bool): If True, only extracts demand levels from the
+                output files. If True, only returns the demand levels without
+                additional information about finish reasons and model responses.
             verbose (bool): Whether to log detailed information per example
                 when failing to extract annotations.
 
         Returns:
-            list | pd.DataFrame: Parsed results as a list of dictionaries
-                or pandas DataFrame. 
+            dict: A dictionary containing the parsed outputs with prompt custom ids as keys.
+            Each entry includes subdomain, finish_reason, model response and demand level.
         """
         logging.info(f"Parsing output files in {mask_path(self.base_folder)}")
-        output_files = self.get_batch_output_files()
-        if not output_files:
-            logging.error("No output files found. Please launch batch jobs and download results first.")
-            return
         return parse_subdomain_batch_output_files(
             base_folder=self.base_folder,
-            output_path=output_path,
-            return_pandas=return_pandas,
+            only_levels=only_levels,
             verbose=verbose
         )
+
+    def parse_output_files_and_save_results(
+            self,
+            output_path: str | Path = None,
+            file_type: Literal['jsonl', 'csv'] = 'jsonl',
+            only_levels: bool = False,
+            csv_format: Literal['long', 'wide'] = 'long',
+            verbose: bool = True
+        ):
+        """
+        Parse all available output files in self.base folder from batch jobs
+        and save the results to a specified output path.
+
+        Args:
+            output_path (str | Path): Path to save the parsed output files results.
+                Path can be a either a file or a directory. If a directory is provided, 
+                the results will be saved as 'annotations.jsonl' or 'annotations.csv'
+                in that directory.
+            file_type (str): Type of file to save the results. Can be 'jsonl' or 'csv'.
+            only_levels (bool): If True, only saves demand levels without
+                additional information about finish reasons and model responses.
+            csv_format (str): Format of the CSV file if file_type is 'csv'.
+                Can be 'long' or 'wide'. "long" format will have one row per
+                annotation, while "wide" format will have one row per prompt
+                with all levels as columns. Note that "wide" will not include 
+                finish reasons and completions, only levels, independently of 
+                the --only-levels flag.
+            verbose (bool): Whether to log detailed information per example
+                when failing to extract annotations.
+        """
+        save_parsed_subdomain_batch_output_files_results(
+            base_folder=self.base_folder,
+            output_path=output_path,
+            file_type=file_type,
+            only_levels=only_levels,
+            csv_format=csv_format,
+            verbose=verbose
+        )
+        logging.info(f"Parsed output files results saved in {mask_path(output_path)}")
 
     def get_batch_input_files(self, demand_levels: str | list | None = None) -> List[Path]:
         """
@@ -722,7 +757,7 @@ class DeLeAnBatchManager:
         logging.info("Running full pipeline...")
 
         logging.info(f"Creating batch files from {mask_path(self.source_data_path)} and {mask_path(self.rubrics_folder)}...")
-        self.create_input_files(split_files=True, demand_level=demand_level)
+        self.create_input_files(demand_level=demand_level)
         logging.info(f"Batch files created in {mask_path(os.path.join(self.base_folder, '*', 'input.jsonl'))}.")
 
         logging.info("Launching all batch jobs...")

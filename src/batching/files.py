@@ -6,11 +6,10 @@ import json
 import math
 import re
 from collections import defaultdict
-import pandas as pd
 import polars as pl
 from pathlib import Path
 from tqdm.auto import tqdm
-from typing import List, Optional, Union
+from typing import List, Optional, Literal
 
 from ..utils import mask_path
 
@@ -164,7 +163,7 @@ def create_subdomain_batch_input_files(
                 f.write(json.dumps(request) + '\n')
 
         need_to_split = need_to_split_file(
-            n_lines=len(rows),
+            n_lines=len(prompt_data),
             n_bytes=os.path.getsize(output_file),
             max_lines_per_file=max_lines_per_file,
             max_bytes_per_file=max_bytes_per_file
@@ -188,32 +187,27 @@ def create_subdomain_batch_input_files(
 
 def parse_subdomain_batch_output_files(
         base_folder,
-        output_path=None,
-        return_pandas=False,
+        only_levels=False,
         verbose=False
-    ) -> Union[pl.DataFrame, pd.DataFrame]:
+    ) -> dict:
     """
     Parse the output files from the subdomain batch processing to extract demand levels.
-
     Args:
         base_folder (str): Path to the folder containing subdomain directories with the output files.
-        output_path (str, optional): Path to save the results. Can be folder or file path. 
-            If folder, it will be saved with default name. If None, results are not saved.
-        return_pandas (bool, optional): If True, returns a pandas DataFrame instead of polars.
+        only_levels (bool, optional): If True, only returns the demand levels without additional information.
         verbose (bool, optional): If True, logs warnings for any issues encountered when extracting demand levels.
-
     Returns:
-        A DataFrame containing the parsed outputs. 
-        It includes subdomain, custom_id, finish_reason, COT steps, conclusion, and demand level.
+        A dictionary containing the parsed outputs with prompt custom id as keys.
+        It includes subdomain, finish_reason, model response and demand level.
     """
-    demand_levels = defaultdict(list)
+    results = {}
     for file in Path(base_folder).glob('*/output.jsonl'):
         subdomain = Path(file).parent.name.split('_')[0]
         data = [json.loads(line) for line in open(file, 'r')]
-        for output in data:
-            custom_id = output['custom_id']
-            finish_reason = output['response']['body']['choices'][0]['finish_reason']
-            res = output['response']['body']['choices'][0]['message']['content']
+        for item in data:
+            custom_id = item['custom_id']
+            finish_reason = item['response']['body']['choices'][0]['finish_reason']
+            res = item['response']['body']['choices'][0]['message']['content']
             *cot_steps, conclusion = res.split('\n\n')
             if finish_reason == 'stop':
                 try:
@@ -224,25 +218,150 @@ def parse_subdomain_batch_output_files(
                     demand_level = float('nan')
             else:
                 demand_level = float('nan')
-            demand_levels['subdomain'].append(subdomain)
-            demand_levels['idx'].append(custom_id)
-            demand_levels['finish_reason'].append(finish_reason)
-            demand_levels['cot'].append("\n\n".join(cot_steps))
-            demand_levels['conclusion'].append(conclusion)
-            demand_levels['demand_level'].append(demand_level)
+            if custom_id not in results:
+                results[custom_id] = {
+                    'demands': {}
+                }
+            else:
+                results[custom_id]['demands'][subdomain] = {
+                    'level': demand_level
+                }
+            if not only_levels:
+                results[custom_id]['demands'][subdomain]['finish_reason'] = finish_reason
+                results[custom_id]['demands'][subdomain]['model_response'] = res
+    return results
 
-    demand_levels_data = pl.DataFrame(demand_levels)
 
+def save_parsed_subdomain_batch_output_files_results_jsonl(
+        base_folder: str,
+        output_path: Optional[str] = None,
+        only_levels: bool = False,
+        verbose: bool = False
+    ):
+    """
+    Parse the results from the subdomain batch output files and save them to a JSONL file.
+
+    Args:
+        base_folder (str): Path to the folder containing subdomain directories with the output files.
+        output_path (str, optional): Path to save the results. If None, results are not saved.
+            Path can be a file or a directory. If a directory is provided, the results will be saved as 'annotations.jsonl' in that directory.
+        only_levels (bool, optional): If True, only saves the demand levels without additional information.
+        verbose (bool, optional): If True, logs warnings for any issues encountered when extracting demand levels.
+    """
+    results = parse_subdomain_batch_output_files(
+        base_folder=base_folder,
+        only_levels=only_levels,
+        verbose=verbose
+    )
+    lines = []
+    for custom_id, demands in results.items():
+        demands.update({
+            'idx': custom_id,
+        })
+        lines.append(demands)
+    if output_path is not None:
+        if os.path.isdir(output_path):
+            output_path = os.path.join(output_path, 'annotations.jsonl')
+        with open(output_path, 'w') as f:
+            for line in lines:
+                f.write(json.dumps(line) + '\n')
+        logging.info(f"Results saved to {mask_path(output_path)}")
+
+
+def save_parsed_subdomain_batch_output_files_results_csv(
+        base_folder: str,
+        output_path: Optional[str] = None,
+        only_levels: bool = False,
+        format: str = 'long',
+        verbose: bool = False
+    ):
+    """
+    Parse the results from the subdomain batch output files and save them to a CSV file.
+
+    Args:
+        base_folder (str): Path to the folder containing subdomain directories with the output files.
+        output_path (str, optional): Path to save the results. If None, results are not saved.
+            Path can be a file or a directory. If a directory is provided, the results will be saved as 'annotations.csv' in that directory.
+        only_levels (bool, optional): If True, only saves the demand levels without additional information.
+        format (str, optional): Format of the output DataFrame. Can be 'long' or 'wide'.
+            - 'long' format has columns: idx, demand, level, finish_reason, model_response. If only_levels is True, it has idx, demand, level.
+            - 'wide' format has prompt custom id as index and demands as columns with their levels as values.
+                Note that this format won't include finish_reason or model_response information.
+        verbose (bool, optional): If True, logs warnings for any issues encountered when extracting demand levels.
+    """
+    results = parse_subdomain_batch_output_files(
+        base_folder=base_folder,
+        only_levels=only_levels,
+        verbose=verbose
+    )
+    rows = defaultdict(list)
+    for custom_id, demands in results.items():
+        for subdomain, data in demands['demands'].items():
+            rows['idx'].append(custom_id)
+            rows['demand'].append(subdomain)
+            rows['level'].append(data['level'])
+            if not only_levels:
+                rows['finish_reason'].append(data['finish_reason'])
+                rows['model_response'].append(data['model_response'])
+    df = pl.DataFrame(rows)
+    if format == 'wide':
+        df = df.select(['idx', 'demand', 'level'])
+        df = df.pivot(
+            index='idx',
+            columns='demand',
+            values='level',
+        )
     if output_path is not None:
         if os.path.isdir(output_path):
             output_path = os.path.join(output_path, 'annotations.csv')
-        demand_levels_data.write_csv(output_path)
-        logging.info(f"Demand Levels Annotation results saved to {mask_path(output_path)}")
+        df.write_csv(output_path)
+        logging.info(f"Results saved to {mask_path(output_path)}")
 
-    if return_pandas:
-        demand_levels_data = demand_levels_data.to_pandas()
 
-    return demand_levels_data
+def save_parsed_subdomain_batch_output_files_results(
+        base_folder: str,
+        file_type: Literal['jsonl', 'csv'] = 'jsonl',
+        output_path: Optional[str] = None,
+        only_levels: bool = False,
+        csv_format: str = 'long',
+        verbose: bool = False
+    ):
+    """
+    Parse the results from the subdomain batch output files and save them to a file.
+
+    Args:
+        base_folder (str): Path to the folder containing subdomain directories with the output files.
+        file_type (str): Type of file to save the results. Can be 'jsonl' or 'csv'.
+        output_path (str, optional): Path to save the results. If None, results are not saved.
+            Path can be a file or a directory. If a directory is provided, the results will be saved as 'annotations.jsonl' or 'annotations.csv' in that directory.
+        only_levels (bool, optional): If True, only saves the demand levels without additional information.
+        csv_format (str, optional): Format of the output CSV file. Only used if file_type is 'csv'. Can be 'long' or 'wide'.
+            - If 'long', the CSV will have columns: idx, demand, level, finish_reason, model_response. 
+                If only_levels is True, it has idx, demand, level.
+            - If 'wide', the CSV will have prompt custom id as index and demands as columns with their levels as values.
+                Note that the 'wide' format won't include finish_reason or model_response information.
+        verbose (bool, optional): If True, logs warnings for any issues encountered when extracting demand levels.
+
+    Raises:
+        ValueError: If file_type is not 'jsonl' or 'csv'.
+    """
+    if file_type == 'jsonl':
+        save_parsed_subdomain_batch_output_files_results_jsonl(
+            base_folder=base_folder,
+            output_path=output_path,
+            only_levels=only_levels,
+            verbose=verbose
+        )
+    elif file_type == 'csv':
+        save_parsed_subdomain_batch_output_files_results_csv(
+            base_folder=base_folder,
+            output_path=output_path,
+            only_levels=only_levels,
+            format=csv_format,
+            verbose=verbose
+        )
+    else:
+        raise ValueError("file_type must be either 'jsonl' or 'csv'")
 
 
 def need_to_split_file(n_lines, n_bytes, max_lines_per_file, max_bytes_per_file):
