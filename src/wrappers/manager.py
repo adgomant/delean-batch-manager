@@ -20,10 +20,13 @@ from ..batching.files import (
 from ..batching.jobs import (
     launch_batch_job,
     launch_all_batch_jobs,
+    launch_all_batch_jobs_parallel,
     check_batch_status,
     check_all_batch_status,
+    check_all_batch_status_parallel,
     download_batch_result,
     download_all_batch_results,
+    download_all_batch_results_parallel,
     track_and_download_all_batch_jobs_parallel_loop,
     list_batch_jobs,
     cancel_batch_job,
@@ -287,22 +290,33 @@ class DeLeAnBatchManager:
         self.save_batch_id_map_to_file()
         return batch_id
 
-    def launch_all(self):
+    def launch_all(self, parallel: bool = False):
         """
         Launch all batch jobs for input files in the base folder.
+
+        Args:
+            parallel (bool): Whether to launch jobs in parallel.
+                Recommended for multiple large input files.
 
         Returns:
             dict: A dictionary mapping absolute subfolders to batch IDs.
         """
-        self.batch_id_map = launch_all_batch_jobs(
-            client=self.client,
-            base_folder=self.base_folder,
-            endpoint=self.endpoint
-        )
+        if parallel:
+            self.batch_id_map = launch_all_batch_jobs_parallel(
+                client=self.client,
+                base_folder=self.base_folder,
+                endpoint=self.endpoint
+            )
+        else:
+            self.batch_id_map = launch_all_batch_jobs(
+                client=self.client,
+                base_folder=self.base_folder,
+                endpoint=self.endpoint
+            )
         self.save_batch_id_map_to_file()
         return self.batch_id_map
 
-    def launch(self, input_file: str | Path = None):
+    def launch(self, input_file: str | Path = None, parallel: bool = False) -> str | dict:
         """
         Launch batch jobs for specified input file 
         or all input files in the base folder.
@@ -310,6 +324,8 @@ class DeLeAnBatchManager:
         Args:
             input_file (str | Path | None): Path to a single input file.
                 If None, launches all input files in the base folder.
+            parallel (bool): Whether to launch jobs in parallel if launching all jobs.
+                Recommended for multiple large input files.
 
         Returns:
             str | dict: Batch ID if a single input file is provided,
@@ -318,7 +334,7 @@ class DeLeAnBatchManager:
         if input_file:
             return self.launch_single(input_file)
         else:
-            return self.launch_all()
+            return self.launch_all(parallel=parallel)
 
     def get_batch_ids(self, demand_level: str | list | None = None) -> List[str]:
         """
@@ -376,11 +392,13 @@ class DeLeAnBatchManager:
             self._finalized.add(batch_id)
         return status
 
-    def check_all_status(self, verbose: bool = True):
+    def check_all_status(self, parallel: bool = True, verbose: bool = True):
         """
         Check the status of all batch jobs stored in the manager.
 
         Args:
+            parallel (bool): Whether to check the status of all jobs in parallel.
+                 Recommended for multiple jobs.
             verbose (bool): Whether to print detailed status information.
 
         Returns:
@@ -391,19 +409,36 @@ class DeLeAnBatchManager:
             AssertionError: If no batch IDs are stored in the manager.
         """
         assert self.batch_id_map, "No batch IDs stored in manager. Launch jobs first."
-        statuses, summary = check_all_batch_status(self.client, list(self.batch_id_map.values()), verbose=verbose)
+
+        if parallel:
+            statuses, summary = check_all_batch_status_parallel(
+                self.client, list(self.batch_id_map.values()), verbose=verbose
+            )
+        else:
+            statuses, summary = check_all_batch_status(
+                self.client, list(self.batch_id_map.values()), verbose=verbose
+            )
+
         for bid, status in statuses.items():
             if status in ['completed', 'failed']:
                 self._finalized.add(bid)
+
         return statuses, summary
 
-    def check(self, batch_id: str | None = None, verbose: bool = True):
+    def check(
+            self,
+            batch_id: str | None = None,
+            parallel: bool = False,
+            verbose: bool = True
+        ):
         """
         Check the status of a single batch job or all batch jobs.
 
         Args:
-            batch_id (str | None): The ID of the batch job to check. 
+            batch_id (str | None): The ID of the batch job to check.
                 If None, checks the status of all batch jobs.
+            parallel (bool): Whether to check the status of all jobs in
+                parallel if cheking all jobs. Recommended for multiple jobs.
             verbose (bool): Whether to print detailed status information.
 
         Returns:
@@ -414,9 +449,13 @@ class DeLeAnBatchManager:
         if batch_id:
             return self.check_single_status(batch_id, verbose=verbose)
         else:
-            return self.check_all_status(verbose=verbose)
+            return self.check_all_status(parallel=parallel, verbose=verbose)
 
-    def download_single_result(self, batch_id: str, return_summary_dict: bool = False):
+    def download_single_result(
+            self,
+            batch_id: str,
+            return_summary_dict: bool = False
+        ):
         """
         Download results for a single batch job by its ID.
         If the job is not finalized, it will first check the status of the job.
@@ -446,6 +485,7 @@ class DeLeAnBatchManager:
 
         for subfolder, bid in self.batch_id_map.items():
             if bid == batch_id:
+                
                 summary_dict = download_batch_result(
                     client=self.client,
                     batch_id=batch_id,
@@ -456,7 +496,11 @@ class DeLeAnBatchManager:
                     return summary_dict
                 break
 
-    def download_all_results(self, return_summary_dict: bool = False):
+    def download_all_results(
+            self,
+            parallel: bool = False,
+            return_summary_dict: bool = False
+        ):
         """
         Download results for all finalized batch jobs stored in the manager.
         If no batch jobs are finalized, it will first check the status of all jobs.
@@ -466,6 +510,8 @@ class DeLeAnBatchManager:
         results in the subfolders.
 
         Args:
+            parallel (bool): Whether to download results in parallel.
+            Recommended for multiple dense jobs with large files to be downloaded.
             return_summary_dict (bool): Whether to return a summary dictionary of the results.
 
         Returns:
@@ -485,17 +531,29 @@ class DeLeAnBatchManager:
                 return
 
         finalized_batch_id_map = {k: v for k, v in self.batch_id_map.items() if v in self._finalized}
-        summary_dict = download_all_batch_results(
-            client=self.client,
-            batch_id_map=finalized_batch_id_map,
-            base_folder=self.base_folder,
-            return_summary_dict=return_summary_dict
-        )
+        if parallel:
+            summary_dict = download_all_batch_results_parallel(
+                client=self.client,
+                batch_id_map=finalized_batch_id_map,
+                base_folder=self.base_folder,
+                return_summary_dict=return_summary_dict
+            )
+        else:
+            summary_dict = download_all_batch_results(
+                client=self.client,
+                batch_id_map=finalized_batch_id_map,
+                base_folder=self.base_folder,
+                return_summary_dict=return_summary_dict
+            )
 
-        if return_summary_dict:
-            return summary_dict
+        return summary_dict if summary_dict else None
 
-    def download(self, batch_id: str | None = None, return_summary_dict: bool = False):
+    def download(
+            self,
+            batch_id: str | None = None,
+            parallel: bool = False,
+            return_summary_dict: bool = False
+        ) -> dict | None:
         """
         Download results for a single batch job or all finalized batch jobs.
         Results will only be downloaded if the job(s) is/are finalized.
@@ -503,18 +561,26 @@ class DeLeAnBatchManager:
         subfolder(s) will be overridden.
 
         Args:
-            batch_id (str | None): The ID of the batch job to download results for. 
-                If None, downloads results for all finalized batch jobs.
-            return_summary_dict (bool): Whether to return a summary dictionary of the results.
+            batch_id (str | None): The ID of the batch job to download results
+                for. If None, downloads results for all finalized batch jobs.
+            parallel (bool): Whether to download results in parallel
+                if downloading all jobs. Recommended for multiple dense jobs
+                with large files to be downloaded
+            return_summary_dict (bool): Whether to return a summary dictionary
+                of the results.
         
         Returns:
-            dict | None: A summary dictionary of the results if return_summary_dict is True,
-                otherwise None.
+            dict | None: A summary dictionary of the results if
+                return_summary_dict is True, otherwise None.
         """
         if batch_id:
-            return self.download_single_result(batch_id, return_summary_dict=return_summary_dict)
+            return self.download_single_result(
+                batch_id, return_summary_dict=return_summary_dict
+            )
         else:
-            return self.download_all_results(return_summary_dict=return_summary_dict)
+            return self.download_all_results(
+                parallel=parallel, return_summary_dict=return_summary_dict
+            )
 
     def track_and_download_loop(self, check_interval: int = 1800, n_jobs: int = 5):
         """
@@ -630,7 +696,8 @@ class DeLeAnBatchManager:
     def run_full_pipeline(
             self,
             check_interval: int = 1800,
-            max_workers: int = 5,
+            parallel_launch: bool = False,
+            max_workers_for_track: int = 5,
             demand_level: str | list | None = None
         ):
         """
@@ -644,11 +711,12 @@ class DeLeAnBatchManager:
 
         Args:
             check_interval (int): Time in seconds to wait between checks for job completion.
-            max_workers (int): Number of parallel jobs to run for tracking and downloading.
+            parallel_launch (bool): Whether to launch jobs in parallel.
+            max_workers_for_track (int): Number of parallel jobs to run for tracking and downloading.
                 - If -1, uses all available CPU cores.
                 - If 1, uses a single thread.
                 - If >1, uses that many workers, capped at available cores.
-            demand_level (str | list | None): Demand level(s) to filter input files. 
+            demand_level (str | list | None): Demand level(s) to filter input files.
                 If None, creates input files for all demand levels.
         """
         logging.info("Running full pipeline...")
@@ -658,7 +726,7 @@ class DeLeAnBatchManager:
         logging.info(f"Batch files created in {mask_path(os.path.join(self.base_folder, '*', 'input.jsonl'))}.")
 
         logging.info("Launching all batch jobs...")
-        self.launch()
+        self.launch(parallel=parallel_launch)
 
         logging.info("Tracking and downloading all batch jobs (this may take a while)...")
         self.track_and_download_loop(check_interval=check_interval, max_workers=max_workers)

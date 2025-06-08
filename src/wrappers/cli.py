@@ -15,10 +15,13 @@ from ..batching.files import (
 from ..batching.jobs import (
     launch_batch_job,
     launch_all_batch_jobs,
+    launch_all_batch_jobs_parallel,
     check_batch_status,
     check_all_batch_status,
+    check_all_batch_status_parallel,
     download_batch_result,
     download_all_batch_results,
+    download_all_batch_results_parallel,
     track_and_download_all_batch_jobs_parallel_loop,
     list_batch_jobs,
     cancel_batch_job,
@@ -194,7 +197,7 @@ def setup(ctx, azure, data_to_annotate, openai_model, max_completion_tokens,
     if not os.path.exists(rubrics_folder):
         logging.error(msg)
         raise SystemExit(1)
-    
+
     annotations_folder = os.path.abspath(annotations_folder)
     if not os.path.exists(annotations_folder):
         logging.info(f"Creating annotations folder at '{annotations_folder}'.")
@@ -322,8 +325,12 @@ def parse_output_files(ctx, file_type, verbose):
         '(e.g., "KNs_part1") to launch that specific part, or just the demand name '
         '(e.g., "KNs") to lauch all parts related to that demand.')
 )
+@click.option(
+    '--parallel', default=False, is_flag=True,
+    help='Use parallel processing (recommended for multiple large input files)'
+)
 @click.pass_context
-def launch(ctx, demands):
+def launch(ctx, demands, parallel):
     """Launch OpenAI Batch Jobs."""
     base_folder = ctx.obj['base_folder']
     client = ctx.obj['client']
@@ -342,7 +349,10 @@ def launch(ctx, demands):
             ctx.obj['subfolder2id'][str(subfolder)] = batch_id
 
     else:
-        ctx.obj['subfolder2id'] = launch_all_batch_jobs(client, base_folder, endpoint)
+        if parallel:
+            ctx.obj['subfolder2id'] = launch_all_batch_jobs_parallel(client, base_folder, endpoint)
+        else:
+            ctx.obj['subfolder2id'] = launch_all_batch_jobs(client, base_folder, endpoint)
 
     batch_id_map_file = os.path.join(base_folder, "batch_id_map.json")
     save_batch_id_map_to_file(ctx.obj['subfolder2id'], batch_id_map_file)
@@ -360,8 +370,12 @@ def launch(ctx, demands):
         '(e.g., "KNs_part1") to launch that specific part, or just the demand name '
         '(e.g., "KNs") to lauch all parts related to that demand.')
 )
+@click.option(
+    '--parallel', default=False, is_flag=True,
+    help='Use parallel processing (recommended for multiple jobs).'
+)
 @click.pass_context
-def check(ctx, demands):
+def check(ctx, demands, parallel):
     """Check the status of OpenAI Batch Jobs."""
     client = ctx.obj['client']
     base_folder = ctx.obj['base_folder']
@@ -381,7 +395,10 @@ def check(ctx, demands):
 
     else:
         batch_id_list = list(batch_id_map.values())
-        check_all_batch_status(client, batch_id_list, verbose=True)
+        if parallel:
+            check_all_batch_status_parallel(client, batch_id_list, verbose=True)
+        else:
+            check_all_batch_status(client, batch_id_list, verbose=True)
 
 
 @cli.command()
@@ -395,8 +412,12 @@ def check(ctx, demands):
         '(e.g., "KNs_part1") to launch that specific part, or just the demand name '
         '(e.g., "KNs") to lauch all parts related to that demand.')
 )
+@click.option(
+    '--parallel', default=False, is_flag=True,
+    help='Use parallel processing (recommended for multiple dense jobs with large files to be downloaded).'
+)
 @click.pass_context
-def download(ctx, demands):
+def download(ctx, demands, parallel):
     """Download results of OpenAI Batch Jobs. Use this command only if you are sure that the jobs to be downloaded are succesfully completed."""
     client = ctx.obj['client']
     base_folder = ctx.obj['base_folder']
@@ -415,7 +436,10 @@ def download(ctx, demands):
             download_batch_result(client, batch_id, subfolder)
 
     else:
-        download_all_batch_results(client, batch_id_map, base_folder)
+        if parallel:
+            download_all_batch_results_parallel(client, batch_id_map, base_folder)
+        else:
+            download_all_batch_results(client, batch_id_map, base_folder)
 
 
 @cli.command()

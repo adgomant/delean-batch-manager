@@ -5,6 +5,7 @@ import openai
 import logging
 import time
 from collections import Counter
+from typing import List, Dict
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tenacity import (
@@ -21,6 +22,9 @@ from ..utils import mask_path
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+LAUNCH_MAX_WORKERS = 3
+DOWNLOAD_MAX_WORKERS = 5
+CHECK_MAX_WORKERS = 8
 
 # Decorator for retrying transient OpenAI errors ---
 
@@ -37,6 +41,9 @@ retry_on_transient_openai_errors = retry(
     reraise=True
 )
 
+#=============================================================================
+# Batch Job Launching
+#=============================================================================
 
 @retry_on_transient_openai_errors
 def launch_batch_job(client, input_file, endpoint='/chat/completions', metadata_path=None):
@@ -86,29 +93,100 @@ def launch_all_batch_jobs(client, base_folder, endpoint="/chat/completions"):
     """
     batch_ids = {}
 
-    logging.info(f"Scanning subfolders in {mask_path(base_folder)}")
-
+    # Collect all valid input files first
+    input_files = []
     for subfolder in sorted(os.listdir(base_folder)):
         subfolder_path = os.path.join(base_folder, subfolder)
         if not os.path.isdir(subfolder_path):
-            continue  # skip non-directories
-
-        input_file = os.path.join(subfolder_path, "input.jsonl")
-        if not os.path.exists(input_file):
-            logging.warning(f"Skipping {mask_path(subfolder_path)}: input.jsonl not found.")
             continue
 
-        metadata_path = os.path.join(subfolder_path, "batch_metadata.json")
-        batch_id = launch_batch_job(client, input_file, endpoint=endpoint, metadata_path=metadata_path)
-        batch_ids[subfolder_path] = batch_id
+        input_file = os.path.join(subfolder_path, "input.jsonl")
+        if os.path.exists(input_file):
+            metadata_path = os.path.join(subfolder_path, "batch_metadata.json")
+            input_files.append((input_file, metadata_path, subfolder_path))
+        else:
+            logging.warning(f"Skipping {mask_path(subfolder_path)}: input.jsonl not found.")
 
+    logging.info(f"Launching {len(input_files)} batch jobs")
+
+    for input_file, metadata_path, subfolder_path in input_files:
+        logging.info(f"Launching batch job for {mask_path(input_file)}...")
+
+        # Launch the batch job
+        try:
+            batch_id = launch_batch_job(client, input_file, endpoint=endpoint, metadata_path=metadata_path)
+            batch_ids[subfolder_path] = batch_id
+            logging.info(f"Launched job for {mask_path(subfolder_path)}: {batch_id}")
+        except Exception as e:
+            logging.error(f"Failed to launch job for {mask_path(subfolder_path)}: {e}")
+            continue
+
+        # Sleep to avoid hitting rate limits
         time.sleep(3)
 
     logging.info(f"Launched {len(batch_ids)} batch jobs.")
     return batch_ids
 
 
-### --- Status Checking --- ###
+def launch_all_batch_jobs_parallel(
+        client: openai.OpenAI | openai.AzureOpenAI,
+        base_folder: str,
+        endpoint: str = "/chat/completions",
+        max_workers: int = LAUNCH_MAX_WORKERS
+    ):
+    """
+    Launch all batch jobs in parallel with controlled concurrency.
+
+    Args:
+        client: OpenAI API client.
+        base_folder (str): Path to folder containing subfolders with input.jsonl files.
+        endpoint (str): API endpoint for batch jobs.
+        max_workers (int): Maximum concurrent launches (recommended: 3-5).
+
+    Returns:
+        dict: Mapping from folder name to batch ID.
+    """
+    batch_ids = {}
+
+    # Collect all valid input files first
+    input_files = []
+    for subfolder in sorted(os.listdir(base_folder)):
+        subfolder_path = os.path.join(base_folder, subfolder)
+        if not os.path.isdir(subfolder_path):
+            continue
+
+        input_file = os.path.join(subfolder_path, "input.jsonl")
+        if os.path.exists(input_file):
+            metadata_path = os.path.join(subfolder_path, "batch_metadata.json")
+            input_files.append((input_file, metadata_path, subfolder_path))
+        else:
+            logging.warning(f"Skipping {mask_path(subfolder_path)}: input.jsonl not found.")
+
+    logging.info(f"Launching {len(input_files)} batch jobs in parallel (max_workers={max_workers})...")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_path = {
+            executor.submit(launch_batch_job, client, input_file, endpoint, metadata_path): subfolder_path
+            for input_file, metadata_path, subfolder_path in input_files
+        }
+
+        # Collect results as they complete
+        for future in as_completed(future_to_path):
+            subfolder_path = future_to_path[future]
+            try:
+                batch_id = future.result()
+                batch_ids[subfolder_path] = batch_id
+                logging.info(f"✓ Launched job for {mask_path(subfolder_path)}: {batch_id}")
+            except Exception as e:
+                logging.error(f"✗ Failed to launch job for {mask_path(subfolder_path)}: {e}")
+
+    logging.info(f"Successfully launched {len(batch_ids)} batch jobs.")
+    return batch_ids
+
+
+#=============================================================================
+# Batch Status Checking
+#=============================================================================
 
 @retry_on_transient_openai_errors
 def check_batch_status(client, batch_id, verbose=True):
@@ -157,9 +235,17 @@ def check_all_batch_status(client, batch_id_list, verbose=True):
     """
     logging.info(f"Checking status for {len(batch_id_list)} batch jobs...")
     statuses = {}
+    failed_checks = []
+
     for batch_id in batch_id_list:
-        status = check_batch_status(client, batch_id, verbose=verbose)
-        statuses[batch_id] = status
+        try:
+            status = check_batch_status(client, batch_id, verbose=verbose)
+            statuses[batch_id] = status
+            if verbose:
+                logging.info(f"Status for {batch_id}: {status}")
+        except Exception as e:
+            failed_checks.append((batch_id, str(e)))
+            statuses[batch_id] = 'error'
 
     # Generate summary
     counter = Counter(statuses.values())
@@ -174,21 +260,100 @@ def check_all_batch_status(client, batch_id_list, verbose=True):
         for status, data in summary.items():
             logging.info(f"- {status}: {data['count']} ({data['percentage']:.2f}%)")
 
+        if failed_checks:
+            logging.warning("Failed status checks:")
+            for batch_id, error in failed_checks:
+                logging.warning(f" {batch_id}: {error}")
+
+    logging.info(f"Status checks complete: {len(statuses)} total, {len(failed_checks)} errors.")
+
     return statuses, summary
 
 
-### --- Output Downloading --- ###
+def check_all_batch_status_parallel(
+        client: openai.OpenAI | openai.AzureOpenAI,
+        batch_id_list: List[str],
+        max_workers: int = CHECK_MAX_WORKERS,
+        verbose: bool = True
+    ):
+    """
+    Check the status of all batch jobs in parallel.
 
+    Args:
+        client: OpenAI API client.
+        batch_id_list (list): List of batch job IDs.
+        max_workers (int): Maximum concurrent status checks.
+        verbose (bool): If True, print detailed status information per batch.
+
+    Returns:
+        dict: A dictionary with batch IDs as keys and their statuses as values.
+        dict: A summary of the statuses with counts and percentages.
+    """
+    logging.info(f"Checking status for {len(batch_id_list)} batch jobs in parallel (max_workers={max_workers})...")
+    
+    statuses = {}
+    failed_checks = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all status check jobs
+        future_to_batch_id = {
+            executor.submit(check_batch_status, client, batch_id, verbose): batch_id
+            for batch_id in batch_id_list
+        }
+
+        # Collect results as they complete
+        for future in as_completed(future_to_batch_id):
+            batch_id = future_to_batch_id[future]
+            try:
+                status = future.result()
+                statuses[batch_id] = status
+                if verbose:
+                    logging.info(f"Status for {batch_id}: {status}")
+            except Exception as e:
+                logging.error(f"Failed to check status for {batch_id}: {e}")
+                failed_checks.append((batch_id, str(e)))
+                statuses[batch_id] = 'error'
+
+    # Generate summary
+    counter = Counter(statuses.values())
+    total = sum(counter.values())
+    summary = {
+        status: {'count': count, 'percentage': (count / total) * 100}
+        for status, count in counter.items()
+    }
+
+    if verbose:
+        logging.info(f"{'='*25}\nBatch Job Status Summary:")
+        for status, data in summary.items():
+            logging.info(f"- {status}: {data['count']} ({data['percentage']:.2f}%)")
+
+        if failed_checks:
+            logging.warning("Failed status checks:")
+            for batch_id, error in failed_checks:
+                logging.warning(f"  - {batch_id}: {error}")
+
+    logging.info(f"Status checks complete: {len(statuses)} total, {len(failed_checks)} errors.")
+
+    return statuses, summary
+
+
+#==============================================================================
+# Batch Result Downloading
+#==============================================================================
 
 @retry_on_transient_openai_errors
 def download_batch_result(client, batch_id, output_folder, return_summary_dict=False):
     """
-    Download the results JSONL file of a completed batch job and save it as output.jsonl in the given folder.
+    Download the results JSONL file of a completed batch job
+    and save it as output.jsonl in the given folder.
 
     Args:
         client: OpenAI API client.
         batch_id (str): The ID of the batch job.
         output_folder (str): The folder where output.jsonl will be saved.
+
+    Returns:
+        dict or None: Summary dictionary if return_summary_dict is True.
     """
     logging.info(f"Downloading results for batch job {batch_id}...")
     batch_job = client.batches.retrieve(batch_id)
@@ -204,12 +369,16 @@ def download_batch_result(client, batch_id, output_folder, return_summary_dict=F
     metadata_path = os.path.join(output_folder, "batch_metadata.json")
     save_batch_metadata(batch_metadata, metadata_path)
     summary_path = os.path.join(output_folder, "summary.txt")
-    summary_dict = save_batch_summary(batch_metadata.model_dump(), result_path, summary_path=summary_path, return_dict=return_summary_dict)
+    summary_dict = save_batch_summary(
+        batch_metadata.model_dump(),
+        result_path,
+        summary_path=summary_path,
+        return_dict=return_summary_dict
+    )
 
     logging.info(f"Results downloaded to {mask_path(result_path)}.")
 
-    if summary_dict:
-        return summary_dict
+    return summary_dict if return_summary_dict else None
 
 
 def download_all_batch_results(client, batch_id_map, base_folder, return_summary_dict=False):
@@ -224,20 +393,99 @@ def download_all_batch_results(client, batch_id_map, base_folder, return_summary
     logging.info(f"Downloading results for {len(batch_id_map)} jobs...")
 
     batch_summary_list = []
+    failed_downloads = []
     for subfolder, batch_id in batch_id_map.items():
-        summary_dict = download_batch_result(client, batch_id, subfolder, return_summary_dict=True)
-        batch_summary_list.append(summary_dict)
+        try:
+            summary_dict = download_batch_result(
+                client,
+                batch_id,
+                subfolder,
+                return_summary_dict=True
+            )
+            batch_summary_list.append(summary_dict)
+        except Exception as e:
+            failed_downloads.append((subfolder, batch_id, str(e)))
 
     summary_path = os.path.join(base_folder, "summary.txt")
-    summary_dict = save_general_summary(batch_summary_list, summary_path=summary_path, return_dict=return_summary_dict)
+    summary_dict = save_general_summary(
+        batch_summary_list,
+        summary_path=summary_path,
+        return_dict=return_summary_dict
+    )
 
-    logging.info("All downloads complete.")
+    logging.info(f"Downloads complete: {len(batch_summary_list)} successful, {len(failed_downloads)} failed.")
 
-    if return_summary_dict:
-        return summary_dict
+    if failed_downloads:
+        logging.warning("Failed downloads:")
+        for subfolder, batch_id, error in failed_downloads:
+            logging.warning(f"{mask_path(subfolder)} ({batch_id}): {error}")
+
+    return summary_dict if return_summary_dict else None
 
 
-### --- Tracking and Looping --- ###
+def download_all_batch_results_parallel(
+        client,
+        batch_id_map,
+        base_folder,
+        max_workers=DOWNLOAD_MAX_WORKERS,
+        return_summary_dict=False
+    ):
+    """
+    Download all batch results in parallel.
+
+    Args:
+        client: OpenAI API client.
+        batch_id_map (dict): Mapping from subfolder name to batch ID.
+        base_folder (str): Base folder containing subfolders.
+        max_workers (int): Maximum concurrent downloads.
+        return_summary_dict (bool): Whether to return summary dictionary.
+
+    Returns:
+        dict or None: Summary dictionary if requested.
+    """
+    logging.info(f"Downloading results for {len(batch_id_map)} jobs in parallel (max_workers={max_workers})...")
+
+    batch_summary_list = []
+    failed_downloads = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all download jobs
+        future_to_info = {
+            executor.submit(download_batch_result, client, batch_id, subfolder, True): (subfolder, batch_id)
+            for subfolder, batch_id in batch_id_map.items()
+        }
+
+        # Collect results as they complete
+        for future in as_completed(future_to_info):
+            subfolder, batch_id = future_to_info[future]
+            try:
+                summary_dict = future.result()
+                batch_summary_list.append(summary_dict)
+                logging.info(f"Downloaded results for {mask_path(subfolder)}")
+            except Exception as e:
+                failed_downloads.append((subfolder, batch_id, str(e)))
+
+    # Generate overall summary
+    summary_path = os.path.join(base_folder, "summary.txt")
+    summary_dict = save_general_summary(
+        batch_summary_list,
+        summary_path=summary_path,
+        return_dict=return_summary_dict
+    )
+
+    logging.info(f"Downloads complete: {len(batch_summary_list)} successful, {len(failed_downloads)} failed.")
+
+    if failed_downloads:
+        logging.warning("Failed downloads:")
+        for subfolder, batch_id, error in failed_downloads:
+            logging.warning(f"  - {mask_path(subfolder)} ({batch_id}): {error}")
+
+    return summary_dict if return_summary_dict else None
+
+
+#==============================================================================
+# Batch Job Tracking and Looping
+#==============================================================================
 
 def track_and_download_batch(client, batch_id, output_folder, verbose=False):
     """
@@ -302,6 +550,7 @@ def track_and_download_all_batch_jobs_parallel_loop(client, batch_id_map, base_f
                     batch_summary_list.append(summary_dict)
                 elif status == 'failed':
                     failed_ids.add(batch_id)
+                    logging.warning(f"Batch job {batch_id} failed")
                 else:
                     still_pending[subfolder] = batch_id
 
@@ -320,7 +569,9 @@ def track_and_download_all_batch_jobs_parallel_loop(client, batch_id_map, base_f
     return completed_ids, failed_ids
 
 
-### --- Job Listing --- ###
+#==============================================================================
+# Batch Job Management
+#==============================================================================
 
 @retry_on_transient_openai_errors
 def list_batch_jobs(client, status=None):
