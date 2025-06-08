@@ -80,9 +80,17 @@ def cli(ctx, run_name):
                 ctx.obj[key] = value
 
             if ctx.obj['API'] == 'AzureOpenAI':
-                ctx.obj['client'] = create_azure_openai_client()
+                try:
+                    ctx.obj['client'] = create_azure_openai_client()
+                except ValueError as e:
+                    logging.error(f"Error creating Azure OpenAI client: {e}")
+                    raise SystemExit(1)
             else:
-                ctx.obj['client'] = create_openai_client()
+                try:
+                    ctx.obj['client'] = create_openai_client()
+                except ValueError as e:
+                    logging.error(f"Error creating OpenAI client: {e}")
+                    raise SystemExit(1)
 
             batch_id_map_file = f"{ctx.obj['base_folder']}/batch_id_map.json"
             if os.path.exists(batch_id_map_file):
