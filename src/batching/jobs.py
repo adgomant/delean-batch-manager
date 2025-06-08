@@ -6,6 +6,7 @@ import logging
 import time
 from collections import Counter
 from typing import List, Dict
+from tqdm.auto import tqdm
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tenacity import (
@@ -109,7 +110,7 @@ def launch_all_batch_jobs(client, base_folder, endpoint="/chat/completions"):
 
     logging.info(f"Launching {len(input_files)} batch jobs")
 
-    for input_file, metadata_path, subfolder_path in input_files:
+    for input_file, metadata_path, subfolder_path in tqdm(input_files):
         logging.info(f"Launching batch job for {mask_path(input_file)}...")
 
         # Launch the batch job
@@ -171,7 +172,7 @@ def launch_all_batch_jobs_parallel(
         }
 
         # Collect results as they complete
-        for future in as_completed(future_to_path):
+        for future in tqdm(as_completed(future_to_path)):
             subfolder_path = future_to_path[future]
             try:
                 batch_id = future.result()
@@ -237,7 +238,7 @@ def check_all_batch_status(client, batch_id_list, verbose=True):
     statuses = {}
     failed_checks = []
 
-    for batch_id in batch_id_list:
+    for batch_id in tqdm(batch_id_list):
         try:
             status = check_batch_status(client, batch_id, verbose=verbose)
             statuses[batch_id] = status
@@ -302,7 +303,7 @@ def check_all_batch_status_parallel(
         }
 
         # Collect results as they complete
-        for future in as_completed(future_to_batch_id):
+        for future in tqdm(as_completed(future_to_batch_id)):
             batch_id = future_to_batch_id[future]
             try:
                 status = future.result()
@@ -394,7 +395,7 @@ def download_all_batch_results(client, batch_id_map, base_folder, return_summary
 
     batch_summary_list = []
     failed_downloads = []
-    for subfolder, batch_id in batch_id_map.items():
+    for subfolder, batch_id in tqdm(batch_id_map.items()):
         try:
             summary_dict = download_batch_result(
                 client,
@@ -456,7 +457,7 @@ def download_all_batch_results_parallel(
         }
 
         # Collect results as they complete
-        for future in as_completed(future_to_info):
+        for future in tqdm(as_completed(future_to_info)):
             subfolder, batch_id = future_to_info[future]
             try:
                 summary_dict = future.result()
@@ -478,7 +479,7 @@ def download_all_batch_results_parallel(
     if failed_downloads:
         logging.warning("Failed downloads:")
         for subfolder, batch_id, error in failed_downloads:
-            logging.warning(f"  - {mask_path(subfolder)} ({batch_id}): {error}")
+            logging.warning(f"{mask_path(subfolder)} ({batch_id}): {error}")
 
     return summary_dict if return_summary_dict else None
 
