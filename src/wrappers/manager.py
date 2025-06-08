@@ -729,7 +729,9 @@ class DeLeAnBatchManager:
         self.launch(parallel=parallel_launch)
 
         logging.info("Tracking and downloading all batch jobs (this may take a while)...")
-        self.track_and_download_loop(check_interval=check_interval, max_workers=max_workers)
+        self.track_and_download_loop(
+            check_interval=check_interval, max_workers=max_workers_for_track
+        )
         logging.info(f"All batch jobs tracked and downloaded in {mask_path(os.path.join(self.base_folder, '*', 'output.jsonl'))}.")
 
         logging.info("Pipeline complete.")
