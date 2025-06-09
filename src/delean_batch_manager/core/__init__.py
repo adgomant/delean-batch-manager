@@ -25,12 +25,17 @@ Public API Structure:
 
     batching.files.*     - File creation and parsing operations
     batching.jobs.*      - Job launch, monitoring, and results
+    batching.manager.*   - High-level batch management interface
+    batching.summary.*   - Batch summary generation
     batching.utils.*     - Batch ID mapping and utilities
     batching.pricing.*   - Cost estimation and pricing info
 
     utils.clients.*      - OpenAI and Azure OpenAI client creation
     utils.rubrics.*      - Rubrics loading, validation, management
     utils.datasource.*   - Source data reading and validation
+
+    DeleAnBatchManager - High-level interface for managing batch workflows
+                         Note this is shortcut to batching.manager.DeLeAnBatchManager
 """
 
 # Core module exports
@@ -45,4 +50,3 @@ __all__ = [
     'utils',       # Essential utilities and infrastructure
     'DeLeAnBatchManager',  # High-level orchestration interface
 ]
-

@@ -69,6 +69,8 @@ Environment Setup:
     - Current working directory (.env, .env.local)
     - Project root directory
 """
+import sys
+from types import ModuleType
 
 __version__ = "0.1.0"
 __author__ = "Alvar"
@@ -82,6 +84,10 @@ from . import core
 batching = core.batching
 utils = core.utils
 DeLeAnBatchManager = core.DeLeAnBatchManager
+
+# Make aliases importable by adding them to sys.modules
+sys.modules[f"{__name__}.batching"] = batching
+sys.modules[f"{__name__}.utils"] = utils
 
 __all__ = [
     '__version__',

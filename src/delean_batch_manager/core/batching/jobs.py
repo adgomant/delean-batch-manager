@@ -74,8 +74,9 @@ def launch_batch_job(client, input_file, endpoint='/chat/completions', metadata_
     if metadata_path is None:
         metadata_path = Path(input_file).parent / "batch_metadata.json"
     else:
-        if os.isdir(metadata_path):
-            metadata_path = os.path.join(metadata_path, "batch_metadata.json")
+        metadata_path = Path(metadata_path)
+        if metadata_path.is_dir():
+            metadata_path = metadata_path / "batch_metadata.json"
     save_batch_metadata(batch_job.model_dump(), metadata_path)
 
     logging.info(f"Batch job created with ID: {batch_job.id}")
@@ -173,7 +174,7 @@ def launch_all_batch_jobs_parallel(
         }
 
         # Collect results as they complete
-        for future in tqdm(as_completed(future_to_path), desc="Launching batch jobs"):
+        for future in as_completed(future_to_path):
             subfolder_path = future_to_path[future]
             try:
                 batch_id = future.result()
@@ -306,7 +307,7 @@ def check_all_batch_status_parallel(
     """
     if verbose > 0:
         logging.info(f"Checking status for {len(batch_id_list)} batch jobs in parallel (max_workers={max_workers})...")
-    
+
     statuses = {}
     failed_checks = []
 
@@ -318,7 +319,7 @@ def check_all_batch_status_parallel(
         }
 
         # Collect results as they complete
-        for future in tqdm(as_completed(future_to_batch_id), desc="Checking batch statuses"):
+        for future in as_completed(future_to_batch_id):
             batch_id = future_to_batch_id[future]
             try:
                 status = future.result()
@@ -338,7 +339,8 @@ def check_all_batch_status_parallel(
     }
 
     if verbose > 1:
-        logging.info(f"{'='*25}\nBatch Job Status Summary:")
+        logging.info(f"{'='*25}")
+        logging.info(f"Batch Job Status Summary:")
         for status, data in summary.items():
             logging.info(f"- {status}: {data['count']} ({data['percentage']:.2f}%)")
 
@@ -472,7 +474,7 @@ def download_all_batch_results_parallel(
         }
 
         # Collect results as they complete
-        for future in tqdm(as_completed(future_to_info), desc="Downloading batch results"):
+        for future in as_completed(future_to_info):
             subfolder, batch_id = future_to_info[future]
             try:
                 summary_dict = future.result()

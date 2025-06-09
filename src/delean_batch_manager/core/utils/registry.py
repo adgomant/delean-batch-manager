@@ -68,7 +68,7 @@ class RunRegistry:
         }
 
         self._save_registry(registry)
-        logging.info(f"Registered run '{run_name}' in global registry")
+        logging.debug(f"Registered run '{run_name}' in global registry")
 
     def get_run_config(self, run_name: str) -> Optional[Dict]:
         """Get configuration for a specific run."""

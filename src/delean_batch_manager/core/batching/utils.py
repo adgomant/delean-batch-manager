@@ -33,24 +33,28 @@ def write_json(data, path, indent=4, encoding="utf-8"):
         json.dump(data, f, indent=indent)
 
 
-def save_batch_id_map_to_file(batch_id_map, path):
+def save_batch_id_map_to_file(batch_id_map, path, verbose=True):
     """
     Save a subfolder -> batch ID map to a JSON file.
     """
+    path = str(path)
     if not path.endswith('.json'):
         raise ValueError("Path must end with .json")
     write_json(batch_id_map, path)
-    logging.info(f"Saved {len(batch_id_map)} batch IDs to {mask_path(path)}.")
+    if verbose:
+        logging.info(f"Saved {len(batch_id_map)} batch IDs to {mask_path(path)}.")
 
 
-def load_batch_id_map_from_file(path):
+def load_batch_id_map_from_file(path, verbose=True):
     """
     Load a subfolder -> batch ID map from a JSON file.
     """
+    path = str(path)
     if not path.endswith('.json'):
         raise ValueError("Path must end with .json")
     batch_id_map = read_json(path)
-    logging.info(f"Loaded {len(batch_id_map)} batch IDs from {mask_path(path)}.")
+    if verbose:
+        logging.info(f"Loaded {len(batch_id_map)} batch IDs from {mask_path(path)}.")
     return batch_id_map
 
 

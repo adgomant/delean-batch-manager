@@ -239,16 +239,21 @@ def save_parsed_results_csv(
         format: str = 'long',
     ):
     """
-    Parse the results from the subdomain batch output files and save them to a CSV file.
+    Parse the results from the subdomain batch output files
+    and save them to a CSV file.
 
     Args:
         results (dict): Parsed results from the subdomain batch output files.
-        output_path (str, optional): Path to save the results. If None, results are not saved.
-            Path can be a file or a directory. If a directory is provided, the results will be saved as 'annotations.csv' in that directory.
-        format (str, optional): Format of the output DataFrame. Can be 'long' or 'wide'.
-            - 'long' format has columns: idx, demand, level, finish_reason, model_response. If only_levels is True, it has idx, demand, level.
-            - 'wide' format has prompt custom id as index and demands as columns with their levels as values.
-                Note that this format won't include finish_reason or model_response information.
+        output_path (str, optional): Path to save the results.
+            If None, results are not saved. Path can be a file or a directory.
+            If a directory is provided, the results will be saved as
+            'annotations.csv' in that directory.
+        format (str, optional): Format of the output CSV file. Can be 'long' or 'wide'.
+            - 'long' format has columns: idx, demand, level, finish_reason,
+                model_response. If only_levels is True, it has idx, demand, level.
+            - 'wide' format has prompt custom id as index and demands as
+                columns with their levels as values. Note that this format won't
+                include finish_reason or model_response information.
     """
     if format not in ['long', 'wide']:
         raise ValueError("format must be either 'long' or 'wide'")
