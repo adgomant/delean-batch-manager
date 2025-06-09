@@ -79,8 +79,11 @@ Repository = "https://github.com/adgomant/delean-batch-manager.git"
 # ============================================================================
 # BUILD CONFIGURATION (Hatchling)
 # ============================================================================
+[tool.hatch.build]
+sources = ["src"]
+
 [tool.hatchling.build.targets.wheel]
-packages = ["src/delean_batch_manager"]
+packages = ["delean_batch_manager"]
 
 # Include important files in source distribution
 [tool.hatchling.build.targets.sdist]
