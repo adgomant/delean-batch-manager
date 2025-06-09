@@ -183,7 +183,7 @@ def validate_positive_integer_callback(ctx, param, value):
 @click.option(
     '--base-folder', type=click.Path(), required=True,
     help=(
-        'Path where all batch processing files will be stored. '
+        'Path to where all batch processing files will be stored. '
         'This includes input files, output files, and run configuration. '
         'Will be created if it doesn\'t exist.'
     )
@@ -191,7 +191,7 @@ def validate_positive_integer_callback(ctx, param, value):
 @click.option(
     '--annotations-folder', type=click.Path(), default=None,
     help=(
-        'Path where final annotation results will be saved. '
+        'Path to where final annotation results will be saved. '
         'If not provided, will use base-folder/annotations/'
     )
 )
@@ -533,9 +533,9 @@ def launch(ctx, demands, parallel):
     client = ctx.obj['client']
     endpoint = ctx.obj['openai_body_url']
 
-    all_subfolders = __safe_get_subfolders(base_folder)  # Exits if no subfolders found i.e. no input files were created first
+    all_subfolders = _safe_get_subfolders(base_folder)  # Exits if no subfolders found i.e. no input files were created first
     if demands:
-        input_files, failed = __get_demand_input_files(demands, all_subfolders)
+        input_files, failed = _get_demand_input_files(demands, all_subfolders)
         if failed:
             logging.error(f"Cannot launch any job because of demands: {failed}. "
                           + "Please ensure the input files are created for these demands or check if names are correct.")
@@ -583,14 +583,14 @@ def check(ctx, demands, parallel):
 
     # Get all demands subfolders,
     # exits if no subfolders found with valid input files in.
-    all_subfolders = __safe_get_subfolders(base_folder)
+    all_subfolders = _safe_get_subfolders(base_folder)
 
     # Get batch ID map, exits if no batch jobs found launched
-    batch_id_map = __safe_get_batch_id_map(ctx)
-    demands_launched = __get_demands_launched(batch_id_map)
+    batch_id_map = _safe_get_batch_id_map(ctx)
+    demands_launched = _get_demands_launched(batch_id_map)
 
     if demands:
-        subfolders, batch_ids, failed = __get_demand_subfolders_and_batch_ids(
+        subfolders, batch_ids, failed = _get_demand_subfolders_and_batch_ids(
             demands, all_subfolders, batch_id_map
         )
         if failed:
@@ -640,14 +640,14 @@ def download(ctx, demands, parallel):
 
     # Get all demands subfolders,
     # exits if no subfolders found with valid input files in.
-    all_subfolders = __safe_get_subfolders(base_folder)
+    all_subfolders = _safe_get_subfolders(base_folder)
 
     # Get batch ID map, exits if no batch jobs found launched
-    batch_id_map = __safe_get_batch_id_map(ctx)
-    demands_launched = __get_demands_launched(batch_id_map)
+    batch_id_map = _safe_get_batch_id_map(ctx)
+    demands_launched = _get_demands_launched(batch_id_map)
 
     if demands:
-        subfolders, batch_ids, failed = __get_demand_subfolders_and_batch_ids(
+        subfolders, batch_ids, failed = _get_demand_subfolders_and_batch_ids(
             demands, all_subfolders, batch_id_map
         )
         if failed:
@@ -688,14 +688,14 @@ def cancel(ctx, demands):
 
     # Get all demands subfolders,
     # exits if no subfolders found with valid input files in.
-    all_subfolders = __safe_get_subfolders(base_folder)
+    all_subfolders = _safe_get_subfolders(base_folder)
 
     # Get batch ID map, exits if no batch jobs found launched
-    batch_id_map = __safe_get_batch_id_map(ctx)
-    demands_launched = __get_demands_launched(batch_id_map)
+    batch_id_map = _safe_get_batch_id_map(ctx)
+    demands_launched = _get_demands_launched(batch_id_map)
 
     if demands:
-        subfolders, batch_ids, failed = __get_demand_subfolders_and_batch_ids(
+        subfolders, batch_ids, failed = _get_demand_subfolders_and_batch_ids(
             demands, all_subfolders, batch_id_map
         )
         if failed:
@@ -754,7 +754,7 @@ def track_and_download_loop(ctx, check_interval, n_jobs):
 def list_jobs(ctx, status):
     """List all OpenAI Batch Jobs with their status."""
     client = ctx.obj['client']
-    batch_id_map = __safe_get_batch_id_map(ctx)
+    batch_id_map = _safe_get_batch_id_map(ctx)
     list_batch_jobs(client, batch_id_map, status)
 
 
@@ -762,7 +762,7 @@ def list_jobs(ctx, status):
 # Private Safe Getters
 #=======================================================================
 
-def __safe_get_subfolders(base_folder):
+def _safe_get_subfolders(base_folder):
     """
     Safely get the all the demand subfolders from the base folder.
     If no subfolders are found, the program ends.
@@ -780,12 +780,15 @@ def __safe_get_subfolders(base_folder):
     return subfolders
 
 
-def __get_demand_input_files(demands, all_subfolders):
+def _get_demand_input_files(demands, all_subfolders):
     """Get the subfolders for given demands."""
     infiles = []
     failed = []
     for demand in demands:
-        demand_subfolders = [subf for subf in all_subfolders if demand in subf.name]
+        demand_subfolders = [
+            subf for subf in all_subfolders
+            if subf.name.startswith(demand)
+        ]
         if not demand_subfolders:
             failed.append(demand)
         for subfolder in demand_subfolders:
@@ -797,7 +800,7 @@ def __get_demand_input_files(demands, all_subfolders):
     return infiles, failed
 
 
-def __safe_get_batch_id_map(ctx):
+def _safe_get_batch_id_map(ctx):
     """
     Safely get the batch ID map from the context.
     If no jobs are found, the program ends.
@@ -811,18 +814,21 @@ def __safe_get_batch_id_map(ctx):
     return batch_id_map
 
 
-def __get_demands_launched(batch_id_map):
+def _get_demands_launched(batch_id_map):
     """Get the list of demands launched from the batch ID map."""
     return [Path(subf).name for subf in batch_id_map.keys()]
 
 
-def __get_demand_subfolders_and_batch_ids(demands, all_subfolders, batch_id_map):
+def _get_demand_subfolders_and_batch_ids(demands, all_subfolders, batch_id_map):
     """Get the subfolder and batch ID for given demands."""
     subfs = []
     bids = []
     failed = []
     for demand in demands:
-        demand_subfolders = [subf for subf in all_subfolders if demand in subf.name]
+        demand_subfolders = [
+            subf for subf in all_subfolders
+            if subf.name.startswith(demand)
+        ]
         if not demand_subfolders:
             failed.append(demand)
         for subfolder in demand_subfolders:
