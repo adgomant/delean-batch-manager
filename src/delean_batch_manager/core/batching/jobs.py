@@ -605,7 +605,10 @@ def list_batch_jobs(client, batch_id_map=None, status=None):
     Returns:
         list: A list of dictionaries containing metadata for each job matching the status.
     """
-    logging.info(f"Listing jobs with status: {status}...")
+    if status is None:
+        logging.info("Listing all batch jobs...")
+    else:
+        logging.info(f"Listing jobs with status: {status}...")
     jobs = client.batches.list()
     jobs_metadata = []
     count = 0
@@ -615,7 +618,7 @@ def list_batch_jobs(client, batch_id_map=None, status=None):
             for subfolder, bid in batch_id_map.items():
                 subdomain = Path(subfolder).name
                 if bid == job.id and (status is None or job.status == status):
-                    logging.info(f"- Demand: {subdomain}, Batch ID: {job.id}, Status: {job.status}, Created at: {created_at}")
+                    logging.info(f"- Demand: {subdomain:<3}, Batch ID: {job.id}, Status: {job.status}, Created at: {created_at}")
                     jobs_metadata.append(job.model_dump())
                     count += 1
                     break
@@ -624,11 +627,15 @@ def list_batch_jobs(client, batch_id_map=None, status=None):
                 logging.info(f"- Batch ID: {job.id}, Status: {job.status}, Created at: {created_at}")
                 jobs_metadata.append(job.model_dump())
                 count += 1
-    logging.info(f"Found {count} jobs matching status '{status}'.")
+    if status is None:
+        logging.info(f"Found {len(jobs_metadata)} batch jobs.")
+    else:
+        if count == 0:
+            logging.info(f"No jobs found matching status '{status}'.")
+        else:
+            logging.info(f"Found {count} jobs matching status '{status}'.")
     return jobs_metadata
 
-
-### --- Job cancellation --- ###
 
 @retry_on_transient_openai_errors
 def cancel_batch_job(client, batch_id):

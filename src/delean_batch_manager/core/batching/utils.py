@@ -67,4 +67,3 @@ def save_batch_metadata(batch_metadata, path):
         raise ValueError("Path must end with .json")
     write_json(batch_metadata, path)
     logging.info(f"Saved batch metadata to {mask_path(path)}.")
-
