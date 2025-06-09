@@ -1,0 +1,96 @@
+# ============================================================================
+# BUILD SYSTEM (Required for pip install)
+# ============================================================================
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# ============================================================================
+# PROJECT METADATA
+# ============================================================================
+[project]
+name = "delean-batch-manager"
+version = "0.1.0"
+description = "A toolkit for managing OpenAI Batch API jobs to obtain demand level annotations"
+readme = "README.md"
+authors = [
+    {name = "Alvaro David Gomez Anton"},
+    {name = "Lexin Zhou"}
+]
+maintainers = [
+    {name = "Alvaro David Gomez Anton"}
+]
+keywords = [
+    "openai",
+    "batch-processing", 
+    "demand-level-annotation", 
+    "DeLeAn", "ADeLe",
+    "nlp", 
+    "machine-learning",
+    "artificial-intelligence",
+    "ai-evaluation",
+    "evaluation", 
+    "explainability",
+    "cli"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Linguistic",
+]
+requires-python = "~=3.11"
+
+# ============================================================================
+# CORE DEPENDENCIES
+# ============================================================================
+dependencies =[
+    "click==8.1.8"          # CLI framework
+    "openai==1.78.0"        # OpenAI API client
+    "platformdirs==4.3.7"   # Cross-platform directories
+    "polars==1.29.0"        # Efficient data manipulation
+    "python-dotenv==1.1.0"  # .env file support
+    "PyYAML==6.0.2"         # YAML parsing (for registry)
+    "tenacity==9.1.2"       # Retry logic for API calls
+    "tiktoken==0.9.0"       # Token counting for OpenAI API
+    "tqdm==4.67.1"          # Progress bars for long-running tasks
+]
+
+# ============================================================================
+# CLI COMMAND
+# ============================================================================
+[project.scripts]
+deleanbm = "delean_batch_manager.cli.__main__:main"
+
+
+# ============================================================================
+# PROJECT URLS 
+# ============================================================================
+[project.urls]
+Homepage = "https://github.com/adgomant/delean-batch-manager"
+#Documentation = "https://delean-batch-manager.readthedocs.io"
+Repository = "https://github.com/adgomant/delean-batch-manager.git"
+"Bug Tracker" = "https://github.com/adgomant/delean-batch-manager/issues"
+
+# ============================================================================
+# BUILD CONFIGURATION (Hatchling)
+# ============================================================================
+[tool.hatchling.build.targets.wheel]
+packages = ["src/delean_batch_manager"]
+
+# Include important files in source distribution
+[tool.hatchling.build.targets.sdist]
+include = [
+    "/src",
+    "/rubrics",         # Your rubrics folder
+    #"/examples",       # Future examples
+    #"/docs",           # Future documentation
+    #"/tests",          # Future tests
+    #"README.md",     
+    #"LICENSE",         # If you add one later
+    "requirements.txt", 
+]

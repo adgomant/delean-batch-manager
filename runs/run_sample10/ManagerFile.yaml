@@ -1,0 +1,10 @@
+run: sample10
+API: AzureOpenAI
+base_folder: /Users/alvar/proyects/TFG/delean-batch-manager/runs/run_sample10
+source_data_file: /Users/alvar/proyects/TFG/proyect/data/processed/prompt_data_sample10.csv
+rubrics_folder: /Users/alvar/proyects/TFG/delean-batch-manager/rubrics
+annotations_folder: /Users/alvar/proyects/TFG/delean-batch-manager/runs/run_sample10/annotations
+openai_body_url: /chat/completions
+openai_model: gpt-4o-global-batch
+openai_max_completion_tokens: 1000
+created_at: '2025-06-09T16:38:54.371891'
