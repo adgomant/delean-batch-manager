@@ -1,4 +1,11 @@
 # -*- coding: utf-8 -*-
+"""
+This module provides functions to manage OpenAI Batch jobs, including launching,
+checking statuses, downloading results, and managing batch jobs.
+It supports both serial and parallel execution of tasks.
+It includes retry logic for transient errors and supports parallel execution
+for efficiency.
+"""
 
 import os
 import openai
@@ -22,9 +29,10 @@ from .utils import save_batch_metadata
 from ..utils.misc import mask_path
 
 
-LAUNCH_MAX_WORKERS = 3
-DOWNLOAD_MAX_WORKERS = 5
-CHECK_MAX_WORKERS = 8
+LAUNCH_MAX_WORKERS = 3    # Conservative number of workers to avoid rate limits
+DOWNLOAD_MAX_WORKERS = 5  # Moderate number of workers for downloading results
+CHECK_MAX_WORKERS = 8     # Aggressive number of workers for checking statuses
+
 
 retry_on_transient_openai_errors = retry(
     retry=retry_if_exception_type((
@@ -38,6 +46,7 @@ retry_on_transient_openai_errors = retry(
     stop=stop_after_attempt(10),
     reraise=True
 )
+
 
 #=============================================================================
 # Batch Job Launching
@@ -164,7 +173,7 @@ def launch_all_batch_jobs_parallel(
                         f"were found in {mask_path(base_folder)}. "
                         "Please ensure 'input.jsonl' files were created.")
         return {}
-    
+
     logging.info(f"Launching {len(input_files)} batch jobs in parallel (max_workers={max_workers})...")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
