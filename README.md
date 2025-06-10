@@ -189,15 +189,19 @@ If you found this toolkit useful in your research or development workflows, plea
 
 ### 📄 ADeLe Framework
 
-@misc{zhou2025generalscalesunlockai,  
-  title={General Scales Unlock AI Evaluation with Explanatory and Predictive Power},  
-  author={Lexin Zhou and Lorenzo Pacchiardi and Fernando Martínez-Plumed and Katherine M. Collins and Yael Moros-Daval and Seraphina Zhang and Qinlin Zhao and Yitian Huang and Luning Sun and Jonathan E. Prunty and Zongqian Li and Pablo Sánchez-García and Kexin Jiang Chen and Pablo A. M. Casares and Jiyun Zu and John Burden and Behzad Mehrbakhsh and David Stillwell and Manuel Cebrian and Jindong Wang and Peter Henderson and Sherry Tongshuang Wu and Patrick C. Kyllonen and Lucy Cheke and Xing Xie and José Hernández-Orallo},  
-  year={2025},  
-  eprint={2503.06378},  
-  archivePrefix={arXiv},  
-  primaryClass={cs.AI},  
-  url={https://arxiv.org/abs/2503.06378}  
+<pre>
+```bibtex
+@misc{zhou2025generalscalesunlockai,
+  title={General Scales Unlock AI Evaluation with Explanatory and Predictive Power},
+  author={Lexin Zhou and Lorenzo Pacchiardi and Fernando Martínez-Plumed and Katherine M. Collins and Yael Moros-Daval and Seraphina Zhang and Qinlin Zhao and Yitian Huang and Luning Sun and Jonathan E. Prunty and Zongqian Li and Pablo Sánchez-García and Kexin Jiang Chen and Pablo A. M. Casares and Jiyun Zu and John Burden and Behzad Mehrbakhsh and David Stillwell and Manuel Cebrian and Jindong Wang and Peter Henderson and Sherry Tongshuang Wu and Patrick C. Kyllonen and Lucy Cheke and Xing Xie and José Hernández-Orallo},
+  year={2025},
+  eprint={2503.06378},
+  archivePrefix={arXiv},
+  primaryClass={cs.AI},
+  url={https://arxiv.org/abs/2503.06378}
 }
+```
+</pre>
 
 ### 🛠️ DeLeAn Batch Manager
 
