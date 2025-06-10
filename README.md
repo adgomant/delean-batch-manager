@@ -1,9 +1,7 @@
 # DeLeAn Batch Manager
 
-> **This repository is part of the [ADeLe v1.0 Project](https://kinds-of-intelligence-cfi.github.io/ADELE/)**
->
-> A battery for AI Evaluation with explanatory and predictive power introduced in the paper:
->
+> **This repository is part of the [ADeLe v1.0 Project](https://kinds-of-intelligence-cfi.github.io/ADELE/)** \
+> A battery for AI Evaluation with explanatory and predictive power introduced in the paper: \
 > **[“General Scales unlock AI Evaluation with Explanatory and Predictive Power” (Zhou et al., 2025)](https://arxiv.org/pdf/2503.06378)**.
 
 This toolkit is part of a collaborative effort initiated by researchers at the [Leverhulme Centre for the Future of Intelligence](https://www.lcfi.ac.uk) (University of Cambridge) and the [Center for Information Technology Policy](https://citp.princeton.edu) (Princeton University), aimed at supporting and extending ADeLe v1.0 — a demand-level-based evaluation battery for language models with both explanatory and predictive power.
