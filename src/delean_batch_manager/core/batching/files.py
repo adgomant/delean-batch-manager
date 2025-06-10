@@ -62,7 +62,7 @@ def create_subdomain_batch_input_files(
         rubrics (dict): A dictionary of all rubrics with their full names and content indexed by acronym.
         output_dir (str): Directory to save subdomain directories containing the batch input files.
         max_completion_tokens (int): Maximum number of tokens for the completion. The larger the better but may become costly.
-        openai_model (str): OpenAI model name.
+        openai_model (str): OpenAI model name or custom model identifier deployed on Azure OpenAI.
         body_url (str): URL for the request dict. Defaults to "/chat/completions".
         max_lines_per_file (int): Maximum number of lines per file.
         max_bytes_per_file (int): Maximum size of each file in bytes.
