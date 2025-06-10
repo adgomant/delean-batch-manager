@@ -70,7 +70,7 @@ class DeLeAnBatchManager:
         self.endpoint = "/chat/completions"
 
         self.batch_id_map = {}   # Maps subfolder -> batch_id
-        self._finalized = set()  # Set of finalized batch IDs (completed or failed)
+        self._completed = set()  # Set of completed batch IDs 
         self._input_files = []   # List of input files created for batch jobs
         self._output_files = []  # List of output files downloaded from batch jobs
 
@@ -446,8 +446,8 @@ class DeLeAnBatchManager:
         """
         assert batch_id in self.batch_id_map.values(), "Batch ID not found in manager. Launch job first."
         status = check_batch_status(self.client, batch_id, verbose=verbose)
-        if status in ['completed', 'failed']:
-            self._finalized.add(batch_id)
+        if status == 'completed':
+            self._completed.add(batch_id)
         return status
 
     def check_all_status(self, parallel: bool = True, verbose: int = 2):
@@ -481,8 +481,8 @@ class DeLeAnBatchManager:
             )
 
         for bid, status in statuses.items():
-            if status in ['completed', 'failed']:
-                self._finalized.add(bid)
+            if status == 'completed':
+                self._completed.add(bid)
 
         return statuses, summary
 
@@ -529,8 +529,8 @@ class DeLeAnBatchManager:
         ):
         """
         Download results for a single batch job by its ID.
-        If the job is not finalized, it will first check the status of the job.
-        If the job is not 'completed' or 'failed', it will not download the
+        If the job is not completed, it will first check the status of the job.
+        If the job is not 'completed', it will not download the
         results. If the job can be downloaded, it will override the existing 
         results in the subfolder.
 
@@ -540,18 +540,18 @@ class DeLeAnBatchManager:
 
         Returns:
             dict: A summary dictionary of the results if return_summary_dict is True
-            None: If return_summary_dict is False or if the job is not finalized.
+            None: If return_summary_dict is False or if the job is not completed.
 
         Raises:
             AssertionError: If the batch ID is not found in the manager.
         """
         assert batch_id in self.batch_id_map.values(), "Batch ID not found in manager. Launch job first."
 
-        if batch_id not in self._finalized:
-            logging.warning("Batch job does not appear as finalized. Checking status first.")
+        if batch_id not in self._completed:
+            logging.warning("Batch job does not appear as completed. Checking status first.")
             status = self.check_single_status(batch_id, verbose=0)
-            if batch_id not in self._finalized:
-                logging.error(f"Batch job {batch_id} is not finalized. Status: {status}. Cannot download results until job is 'completed' or 'failed'.")
+            if batch_id not in self._completed:
+                logging.error(f"Batch job {batch_id} is not completed. Status: {status}. Cannot download results.")
                 return
 
         summary_dict = {}
@@ -564,7 +564,7 @@ class DeLeAnBatchManager:
                     return_summary_dict=return_summary_dict
                 )
                 break
-        
+
         self._output_files = self.get_batch_output_files()
         return summary_dict if return_summary_dict else None
 
@@ -574,10 +574,10 @@ class DeLeAnBatchManager:
             return_summary_dict: bool = False
         ):
         """
-        Download results for all finalized batch jobs stored in the manager.
-        If no batch jobs are finalized, it will first check the status of all jobs.
-        If no jobs are 'completed' or 'failed', it will not download results.
-        If any batch jobs are finalized, it will download their results and
+        Download results for all completed batch jobs stored in the manager.
+        If no batch jobs are completed, it will first check the status of all jobs.
+        If no jobs are completed, it will not download results.
+        If any batch jobs are completed, it will download their results and
         return a summary dictionary. Note that this will override existing
         results in the subfolders.
 
@@ -588,21 +588,21 @@ class DeLeAnBatchManager:
 
         Returns:
             dict: A summary dictionary of the results if return_summary_dict is True.
-            None: If return_summary_dict is False or if no batch jobs are finalized,
+            None: If return_summary_dict is False or if no batch jobs are completed.
 
         Raises:
-            AssertionError: If no batch IDs are stored in the manager or if no batch jobs appear as finalized.
+            AssertionError: If no batch IDs are stored in the manager.
         """
         assert self.batch_id_map, "No batch IDs stored in manager. Launch jobs first."
 
-        if not self._finalized:
-            logging.warning("No batch job appear as finalized. Checking status first.")
+        if not self._completed:
+            logging.warning("No batch job appear as completed. Checking status first.")
             self.check_all_status(verbose=0)
-            if not self._finalized:
-                logging.error("No batch jobs are finalized. Cannot download results until at least one job is 'completed' or 'failed'.")
+            if not self._completed:
+                logging.error("No batch jobs are completed. Cannot download results until at least one job is 'completed' or 'failed'.")
                 return
 
-        finalized_batch_id_map = {k: v for k, v in self.batch_id_map.items() if v in self._finalized}
+        finalized_batch_id_map = {k: v for k, v in self.batch_id_map.items() if v in self._completed}
         if parallel:
             summary_dict = download_all_batch_results_parallel(
                 client=self.client,
@@ -628,14 +628,14 @@ class DeLeAnBatchManager:
             return_summary_dict: bool = False
         ) -> dict | None:
         """
-        Download results for a single batch job or all finalized batch jobs.
-        Results will only be downloaded if the job(s) is/are finalized.
+        Download results for a single batch job or all completed batch jobs.
+        Results will only be downloaded if the job(s) is/are completed.
         If the result(s) can be downloaded, existing results in the
         subfolder(s) will be overridden.
 
         Args:
             batch_id (str | None): The ID of the batch job to download results
-                for. If None, downloads results for all finalized batch jobs.
+                for. If None, downloads results for all completed batch jobs.
             parallel (bool): Whether to download results in parallel
                 if downloading all jobs. Recommended for multiple dense jobs
                 with large files to be downloaded
@@ -644,7 +644,7 @@ class DeLeAnBatchManager:
 
         Returns:
             dict: A summary dictionary of the results if return_summary_dict is True.
-            None: If return_summary_dict is False or if the job(s) is/are not finalized.
+            None: If return_summary_dict is False or if the job(s) is/are not completed.
 
         Raises:
             AssertionError: If no batch IDs are stored in the manager
@@ -664,7 +664,9 @@ class DeLeAnBatchManager:
 
     def track_and_download_loop(self, check_interval: int = 1800, n_jobs: int = 5):
         """
-        Track and download all batch jobs in a loop until all jobs are finalized.
+        Track and download all batch jobs in a loop until all jobs are
+        finalized. Note that this method will only download results for
+        jobs that are completed
 
         Args:
             check_interval (int): Time in seconds to wait between checks for job completion.
@@ -695,8 +697,7 @@ class DeLeAnBatchManager:
             check_interval=check_interval,
             max_workers=max_workers
         )
-        self._finalized.update(completed)
-        self._finalized.update(failed)
+        self._completed.update(completed)
 
         return completed, failed
 

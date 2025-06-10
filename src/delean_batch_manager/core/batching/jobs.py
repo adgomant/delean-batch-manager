@@ -388,16 +388,27 @@ def download_batch_result(client, batch_id, output_folder, return_summary_dict=F
     """
     logging.info(f"Downloading results for batch job {batch_id}...")
     batch_job = client.batches.retrieve(batch_id)
+
+    # Download the output file if exists
     output_file_id = batch_job.output_file_id
-    if not output_file_id:
-        raise Exception(f"No output file found for batch {batch_id}")
-    result = client.files.content(output_file_id).content
+    if output_file_id:
+        result = client.files.content(output_file_id).content
+        result_path = os.path.join(output_folder, "output.jsonl")
+        with open(result_path, 'wb') as file:
+            file.write(result)
+        logging.info(f"Results downloaded to {mask_path(result_path)}.")
+    else:
+        raise Exception(f"Batch job {batch_id} has no output file. "
+                        "It may still be in progress or has failed.")
 
-    result_path = os.path.join(output_folder, "output.jsonl")
-    with open(result_path, 'wb') as file:
-        file.write(result)
-
-    logging.info(f"Results downloaded to {mask_path(result_path)}.")
+    # Download the error file if it exists
+    error_file_id = batch_job.error_file_id
+    if error_file_id:
+        error_result = client.files.content(error_file_id).content
+        error_path = os.path.join(output_folder, "errors.jsonl")
+        with open(error_path, 'wb') as file:
+            file.write(error_result)
+        logging.info(f"Error results downloaded to {mask_path(error_path)}.")
 
     # Save the batch summary
     batch_metadata = batch_job.model_dump()
