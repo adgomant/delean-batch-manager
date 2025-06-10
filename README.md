@@ -1,8 +1,10 @@
 # DeLeAn Batch Manager
 
-> **This repository is part of the [ADeLe v1.0 Project](https://kinds-of-intelligence-cfi.github.io/ADELE/)**, A battery for AI Evaluation with explanatory and predictive power introduced in the paper **[“General Scales unlock AI Evaluation with Explanatory and Predictive Power” (Zhou et al., 2025)](https://arxiv.org/pdf/2503.06378)**.
+> **This repository is part of the [ADeLe v1.0 Project](https://kinds-of-intelligence-cfi.github.io/ADELE/)**
+> A battery for AI Evaluation with explanatory and predictive power introduced in the paper:
+> **[“General Scales unlock AI Evaluation with Explanatory and Predictive Power” (Zhou et al., 2025)](https://arxiv.org/pdf/2503.06378)**.
 
-This toolkit is part of a collaborative effort initiated by researchers at the Leverhulme Centre for the Future of Intelligence (University of Cambridge) and the Center for Information Technology Policy (Princeton University), aimed at supporting and extending ADeLe v1.0 — a demand-level-based evaluation battery for language models with both explanatory and predictive power.
+This toolkit is part of a collaborative effort initiated by researchers at the [Leverhulme Centre for the Future of Intelligence](https://www.lcfi.ac.uk) (University of Cambridge) and the [Center for Information Technology Policy](https://citp.princeton.edu) (Princeton University), aimed at supporting and extending ADeLe v1.0 — a demand-level-based evaluation battery for language models with both explanatory and predictive power.
 
 ADeLe (Annotated Demand Levels) includes 63 tasks from 20 widely-used benchmarks, all annotated using 18 general-purpose rubrics defined in the Demand Level Annotation framework (DeLeAn v1.0). This enables, for the first time, the construction of detailed ability profiles of large language models, offering insights not only into what they can and cannot do, but also into when and where they will behave reliably and safely — at the instance level.
 
