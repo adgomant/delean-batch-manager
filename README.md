@@ -114,6 +114,7 @@ Check the `examples/` or `notebooks/` folders for more detailed examples.
 * `rubrics/`: Default rubric battery (DeLeAn v1.0)
 * `examples/` & `notebooks/`: Practical usage examples and notebooks (to be added)
 * `docs/`: Documentation resources (to be added)
+* `tests/`: Test suite (to be implemented)
 
 ---
 

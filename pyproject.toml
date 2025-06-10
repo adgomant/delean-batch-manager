@@ -92,9 +92,10 @@ include = [
     "/src",
     "/rubrics",         # Your rubrics folder
     #"/examples",       # Future examples
+    #"/notebooks",      # Future Jupyter notebooks
     #"/docs",           # Future documentation
     #"/tests",          # Future tests
-    #"README.md",     
-    #"LICENSE",         # If you add one later
+    "README.md",     
+    "LICENSE",         
     "requirements.txt", 
 ]
