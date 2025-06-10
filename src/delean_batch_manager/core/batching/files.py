@@ -22,7 +22,6 @@ def get_full_instruction(subdomain, rubric_content, prompt):
         subdomain (str): The subdomain for which the prompt is generated.
         rubric_content (str): The content of the rubric for the subdomain.
         prompt (str): The task instance prompt.
-        max_tokens (int): Maximum number of tokens for the completion.
 
     Returns:
         str: The full prompt string.
