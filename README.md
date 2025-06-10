@@ -166,7 +166,7 @@ deleanbm -r example_run get-pricing --openai-model o4-mini --max-completion-toke
 
 ## 📜 License and Credits
 
-This project is licensed under the MIT License.
+This project is licensed under the Apache 2.0 License.
 
 **Authors:**
 
