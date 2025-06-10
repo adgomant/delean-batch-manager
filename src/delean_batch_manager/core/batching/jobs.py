@@ -120,7 +120,7 @@ def launch_all_batch_jobs(client, base_folder, endpoint="/chat/completions"):
                         "Please ensure 'input.jsonl' files were created.")
         return {}
 
-    logging.info(f"Launching {len(batch_ids)} batch jobs")
+    logging.info(f"Launching {len(input_files)} batch jobs")
 
     for input_file, metadata_path, subfolder_path in tqdm(input_files, desc="Launching batch jobs"):
         logging.info(f"Launching batch job for {mask_path(input_file)}...")
@@ -381,10 +381,16 @@ def download_batch_result(client, batch_id, output_folder, return_summary_dict=F
 
     Returns:
         dict or None: Summary dictionary if return_summary_dict is True.
+
+    Raises:
+        Exception: If the batch job has no output file.
+            This can happen if the job is still in progress or has failed.
     """
     logging.info(f"Downloading results for batch job {batch_id}...")
     batch_job = client.batches.retrieve(batch_id)
     output_file_id = batch_job.output_file_id
+    if not output_file_id:
+        raise Exception(f"No output file found for batch {batch_id}")
     result = client.files.content(output_file_id).content
 
     result_path = os.path.join(output_folder, "output.jsonl")
@@ -537,7 +543,13 @@ def track_and_download_batch(client, batch_id, output_folder, verbose=False):
         return 'pending', {}
 
 
-def track_and_download_all_batch_jobs_parallel_loop(client, batch_id_map, base_folder, check_interval=1800, max_workers=5):
+def track_and_download_all_batch_jobs_parallel_loop(
+        client: openai.OpenAI | openai.AzureOpenAI,
+        batch_id_map: dict[str, str],
+        base_folder: str,
+        check_interval: int = 1800,
+        max_workers: int = 5
+    ):
     """
     Track and download all batch jobs in parallel until all are completed or failed.
 

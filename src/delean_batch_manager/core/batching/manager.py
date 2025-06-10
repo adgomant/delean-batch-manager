@@ -187,7 +187,7 @@ class DeLeAnBatchManager:
             max_bytes_per_file=max_bytes_per_file
         )
 
-        self._input_files = self.get_batch_input_files(demand_levels=demand_level)
+        self._input_files = self.get_batch_input_files(demand_levels=demands)
 
     def parse_output_files(
             self,
@@ -254,68 +254,68 @@ class DeLeAnBatchManager:
 
         return results
 
-    def get_batch_input_files(self, demand_levels: str | list | None = None) -> List[Path]:
+    def get_batch_input_files(self, demands: str | list | None = None) -> List[Path]:
         """
         Get input files for specified demand levels.
 
         Args:
-            demand_levels (str | list | None): Demand level(s) to filter input files. 
+            demands (str | list | None): Demand name(s) to filter input files.
                 If None, returns all input files.
 
         Returns:
-            List[Path]: List of input file paths corresponding to the specified demand levels.
+            List[Path]: List of input file paths corresponding to the specified demand name(s).
 
         Raises:
-            ValueError: If demand_levels is not a string or list of strings.
-            Exception: If no input files are found for the specified demand level(s).
+            ValueError: If demands is not a string or list of strings.
+            Exception: If no input files are found for the specified demand name(s).
         """
         input_files = Path(self.base_folder).glob("*/input.jsonl")
 
-        if demand_levels is None:
+        if demands is None:
             return list(input_files)
-        if isinstance(demand_levels, str):
-            demand_levels = [demand_levels]
-        if not isinstance(demand_levels, list):
-            raise ValueError("demand_levels must be a string or a list of strings.")
+        if isinstance(demands, str):
+            demands = [demands]
+        if not isinstance(demands, list):
+            raise ValueError("demands must be a string or a list of strings.")
 
         filtered_files = []
-        for demand in demand_levels:
+        for demand in demands:
             demand_files = [file for file in input_files if demand in file.name]
             if not demand_files:
-                raise Exception(f"No input files found for demand level '{demand}'. Please ensure the demand level is correct and input files are created.")
+                raise Exception(f"No input files found for demand '{demand}'. Please ensure the demand name is correct and input files are created.")
             filtered_files.extend(demand_files)
 
         return filtered_files
 
-    def get_batch_output_files(self, demand_levels: str | list | None = None) -> List[Path]:
+    def get_batch_output_files(self, demands: str | list | None = None) -> List[Path]:
         """
         Get output files for specified demand levels.
 
         Args:
-            demand_levels (str | list | None): Demand level(s) to filter output files. 
+            demands (str | list | None): Demand name(s) to filter output files. 
                 If None, returns all output files.
 
         Returns:
-            List[Path]: List of output file paths corresponding to the specified demand levels.
+            List[Path]: List of output file paths corresponding to the specified demand name(s).
 
         Raises:
-            ValueError: If demand_levels is not a string or list of strings.
-            Exception: If no output files are found for the specified demand level(s).
+            ValueError: If demands is not a string or list of strings.
+            Exception: If no output files are found for the specified demand name(s).
         """
         output_files = Path(self.base_folder).glob("*/output.jsonl")
 
-        if demand_levels is None:
+        if demands is None:
             return list(output_files)
-        if isinstance(demand_levels, str):
-            demand_levels = [demand_levels]
-        if not isinstance(demand_levels, list):
-            raise ValueError("demand_levels must be a string or a list of strings.")
+        if isinstance(demands, str):
+            demands = [demands]
+        if not isinstance(demands, list):
+            raise ValueError("demands must be a string or a list of strings.")
 
         filtered_files = []
-        for demand in demand_levels:
+        for demand in demands:
             demand_files = [file for file in output_files if demand in file.name]
             if not demand_files:
-                raise Exception(f"No output files found for demand level '{demand}'. Please ensure the demand level is correct and output files are downloaded.")
+                raise Exception(f"No output files found for demand '{demand}'. Please ensure the demand name is correct and output files are downloaded.")
             filtered_files.extend(demand_files)
 
         return filtered_files

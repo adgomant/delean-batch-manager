@@ -76,8 +76,6 @@ def mask_path(path, base_dir=None):
     if str(path).startswith(str(Path.home())):
         return f"~/{path.relative_to(Path.home())}"
 
-    # Mask usernames in the path
-    return re.sub(r"/Users/[^/]+", "~", str(path))
 
 def assert_required_path(path, description="Path"):
     """
@@ -93,7 +91,7 @@ def assert_required_path(path, description="Path"):
     if not os.path.exists(path):
         logging.error(f"{description} not found at: {mask_path(path)}")
         raise FileNotFoundError(f"{description} not found: {path}")
-  
+
 
 def ensure_output_path(path, description="Output folder"):
     """

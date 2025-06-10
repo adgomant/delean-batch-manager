@@ -32,7 +32,7 @@ def read_source_data_jsonl(source_data_file):
     data = []
     for i, item in enumerate(lines):
         if 'prompt' not in item or 'idx' not in item:
-            raise Exception(f"Expected 'prompt' and 'idx' keys not found in line {i} of {source_data_file}.")
+            raise KeyError(f"Expected 'prompt' and 'idx' keys not found in line {i} of {source_data_file}.")
         data.append({
             'prompt': item['prompt'],
             'idx': item['idx']
@@ -44,7 +44,7 @@ def read_source_data_csv(source_data_file):
     """Read source data from a CSV file."""
     df = pl.read_csv(source_data_file)
     if 'prompt' not in df.columns or 'idx' not in df.columns:
-        raise Exception(f"Expected 'prompt' and 'idx' columns not found in {source_data_file}.")
+        raise KeyError(f"Expected 'prompt' and 'idx' columns not found in {source_data_file}.")
     df = df.select(['prompt', 'idx'])
     df = df.to_dicts()
     return df
@@ -64,9 +64,13 @@ def read_only_prompts_from_source_data_jsonl(source_data_file):
     """Read only prompts from a JSONL source data file."""
     prompts = []
     with open(source_data_file, 'r') as f:
-        for line in f:
+        for i, line in enumerate(f):
             item = json.loads(line)
-            prompts.append(item['prompt'])
+            prompt = item.get('prompt')
+            if prompt is not None:
+                prompts.append(item['prompt'])
+            else:
+                raise KeyError(f"Missing 'prompt' in line {i}")
     return prompts
 
 

@@ -24,7 +24,7 @@ def load_environment_variables(env_file: Optional[str] = None, verbose: bool = F
     """
     if env_file:
         # Use specific file
-        env_path = Path(env_file)
+        env_path = Path(env_file).expanduser().resolve()
         if env_path.exists():
             dotenv.load_dotenv(env_path)
             if verbose:
@@ -86,6 +86,9 @@ def validate_required_env_vars(api_type: str = "OpenAI") -> list:
             missing.append('AZURE_OPENAI_API_KEY')
         if not os.getenv('AZURE_OPENAI_ENDPOINT'):
             missing.append('AZURE_OPENAI_ENDPOINT')
+
+    else:
+        raise ValueError("Invalid api_type. Must be 'OpenAI' or 'AzureOpenAI'.")
 
     return missing
 
