@@ -1,4 +1,4 @@
-Atypicality
+# Atypicality
 Level 0: None. The task is a staple one. Exactly the same instance of the task appears many times on the Internet, textbooks or common psychological or achievement tests, and the solution is generally well-known and memorized. Examples:
 * "What is 2 + 2?"
 * "Name the capital of France."

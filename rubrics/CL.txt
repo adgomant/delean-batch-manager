@@ -1,4 +1,4 @@
-Conceptualization, Learning, and Abstraction
+# Conceptualization, Learning, and Abstraction
 Level 0: None. The task requires no conceptualization, learning, abstraction, inductive or analogical reasoning. It involves applying well-established procedures or recalling known information, even for complex tasks. No new abstractions, analogies, or learning occur during task execution.
 Examples:
 * Performing basic one-digit arithmetic multiplications using memorized multiplication tables (like 3x3 = 9).
