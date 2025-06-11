@@ -79,6 +79,7 @@ class RubricsCatalog:
 
     def _parse_rubric_file(self, file_path: Path) -> Tuple[str, str, str]:
         """Parse a rubric file according to the standard format."""
+        # Acronym is the .txt file name
         acronym = file_path.stem
 
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -87,14 +88,18 @@ class RubricsCatalog:
         if not lines:
             raise ValueError("Empty rubric file")
 
+        # First line is the full name, preceeded by '#'
         full_name = lines[0].strip()
-        content = ''.join(lines[1:]).strip()
-
         if not full_name:
             raise ValueError("Missing full name on first line")
+        if not full_name.startswith('#'):
+            raise ValueError("First line must contain full name starting with '#'")
+        full_name = full_name[1:].strip()  # Remove the leading '#'
 
-        if not content:
+        # The rest is the content
+        if len(lines) < 2:
             raise ValueError("Missing rubric content")
+        content = ''.join(lines[1:]).strip()
 
         return acronym, full_name, content
 
@@ -242,6 +247,6 @@ def validate_rubric_file(content: str) -> Tuple[bool, str]:
     if not re.search(example_pattern, content, re.IGNORECASE):
         return False, "Rubric should contain examples for each level"
     elif len(re.findall(example_pattern, content, re.IGNORECASE)) < 6:
-        return False, "Rubric should contain at least one example for each level from Level 0 to Level 5"
+        return False, "Rubric should contain at least one example for each Level from 0 to 5"
 
     return True, "Valid rubric"
