@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import re
 import sys
 import click
 import logging
@@ -150,6 +151,9 @@ def cli(ctx, verbose, quiet, run_name):
                          ".env file at the repo root directory with:")
             for var in missing_vars:
                 logging.info(f"  {var}=your_key_here")
+            logging.info("Or set them in your system environment global variables running the following commands:")
+            for var in missing_vars:
+                logging.info(f"$ export {var}=your_key_here")
             raise SystemExit(1)
 
         # Create API client
@@ -250,17 +254,6 @@ def setup(ctx, source_data_file, rubrics_folder, base_folder,
     """
     run_name = ctx.obj['run_name']
 
-    # Convert to absolute paths
-    source_data_file = Path(source_data_file).resolve()
-    rubrics_folder = Path(rubrics_folder).resolve()
-    base_folder = Path(base_folder).resolve()
-
-    # Set default annotations folder
-    if annotations_folder is None:
-        annotations_folder = base_folder / "annotations"
-    else:
-        annotations_folder = Path(annotations_folder).resolve()
-
     # Check if run already exists in registry
     registry = get_registry()
     existing_config = registry.get_run_config(run_name)
@@ -273,6 +266,17 @@ def setup(ctx, source_data_file, rubrics_folder, base_folder,
             "Do you want to overwrite this run configuration?",
             abort=True
         )
+
+    # Convert to absolute paths
+    source_data_file = Path(source_data_file).resolve()
+    rubrics_folder = Path(rubrics_folder).resolve()
+    base_folder = Path(base_folder).resolve()
+
+    # Set default annotations folder
+    if annotations_folder is None:
+        annotations_folder = base_folder / "annotations"
+    else:
+        annotations_folder = Path(annotations_folder).resolve()
 
     # Validate source data file format and content
     if source_data_file.suffix not in ['.jsonl', '.csv']:
@@ -352,9 +356,8 @@ def setup(ctx, source_data_file, rubrics_folder, base_folder,
     logging.info(f"2. Launch batch jobs: deleanbm -r {run_name} launch [--parallel]")
     logging.info(f"3. Check status: deleanbm -r {run_name} check [--parallel]")
 
-
 @cli.command()
-@click.pass_context  
+@click.pass_context
 def list_runs(ctx):
     """List all registered runs and their status."""
     registry = get_registry()
