@@ -1,13 +1,10 @@
 # -*- coding: utf-8 -*-
 
 import os
-import re
 import sys
 import click
 import logging
-import yaml
 from pathlib import Path
-from datetime import datetime
 
 from ..core.batching.pricing import get_batch_api_pricing
 from ..core.batching.files import (
@@ -39,8 +36,6 @@ from ..core.utils.rubrics import RubricsCatalog
 from ..core.utils.datasource import (
     read_source_data,
     read_only_prompts_from_source_data,
-    check_source_data_jsonl_keys,
-    check_source_data_csv_columns,
 )
 from ..core.utils.clients import (
     create_openai_client,
@@ -48,40 +43,22 @@ from ..core.utils.clients import (
 )
 from ..core.utils.misc import (
     resolve_n_jobs,
-    mask_path
+    mask_path,
 )
 from ..core.utils.environment import (
     validate_required_env_vars
 )
-
-
-def setup_logging(verbose=False, quiet=False):
-    """Configure logging for CLI execution."""
-    if quiet:
-        level = logging.WARNING
-    elif verbose:
-        level = logging.DEBUG
-    else:
-        level = logging.INFO
-
-    # Configure root logger
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        force=True  # Override any existing configuration
-    )
-
-    # Reduce noise from external libraries in non-verbose mode
-    if not verbose:
-        logging.getLogger("urllib3").setLevel(logging.WARNING)
-        logging.getLogger("openai").setLevel(logging.WARNING)
-        logging.getLogger("azure").setLevel(logging.WARNING)
-        logging.getLogger("httpx").setLevel(logging.WARNING)
-
-    if verbose:
-        logger = logging.getLogger(__name__)
-        logger.debug("CLI logging setup completed")
+from .utils import (
+    setup_logging,
+    _validate_positive_integer_callback,
+    _handle_existing_run_setup,
+    _handle_new_run_setup,
+    _safe_get_subfolders,
+    _safe_get_batch_id_map,
+    _get_demand_input_files,
+    _get_demand_subfolders_and_batch_ids,
+    _get_launched_demands
+)
 
 
 @click.group()
@@ -180,181 +157,94 @@ def cli(ctx, verbose, quiet, run_name):
         return
 
 
-def validate_positive_integer_callback(ctx, param, value):
-    """Validate that the provided value is a positive integer."""
-    if value is not None and value <= 0:
-        raise click.BadParameter("Value must be a positive integer.")
-    return value
-
-
 @cli.command()
 @click.option(
-    '--source-data-file', type=click.Path(exists=True), required=True,
+    '--source-data-file', type=click.Path(exists=True), default=None,
     help=('Path to the source data file containing prompts to be annotated. '
-          'Must be a JSONL file with "prompt" and "idx" keys, or CSV with '
-          '"prompt" and "idx" columns.')
+          'Required for new runs.')
 )
 @click.option(
-    '--rubrics-folder', type=click.Path(exists=True), required=True,
-    help=('Path to the folder containing demand level rubrics (text files, '
-          'one per demand level).')
+    '--rubrics-folder', type=click.Path(exists=True), default=None,
+    help=('Path to the folder containing demand level rubrics. '
+          'Required for new runs.')
 )
 @click.option(
-    '--base-folder', type=click.Path(), required=True,
+    '--base-folder', type=click.Path(), default=None,
     help=('Path to where all batch processing files will be stored. '
-          'This includes input files, output files, and run configuration. '
-          'Will be created if it doesn\'t exist.')
+          'Required for new runs.')
 )
 @click.option(
     '--annotations-folder', type=click.Path(), default=None,
     help=('Path to where final annotation results will be saved. '
-          'If not provided, will use base-folder/annotations/')
+          'For new runs, default is base-folder/annotations/')
 )
 @click.option(
-    '--openai-model', type=str, default='gpt-4o',
-    help=('OpenAI model to use for batch processing.'
-          'Default is "gpt-4o". ')
+    '--openai-model', type=str, default=None,
+    help=('OpenAI model to use for batch processing. '
+          'For new runs, default is \'gpt-4o\'.')
 )
 @click.option(
-    '--max-completion-tokens', type=int, default=1000,
-    callback=validate_positive_integer_callback,
-    help=('Maximum number of tokens for each completion.'
-          'Default is 1000. ')
+    '--max-completion-tokens', type=int, default=None,
+    callback=_validate_positive_integer_callback,
+    help=('Maximum number of tokens for each completion. '
+          'For new runs, default is 1000.')
 )
 @click.option(
     '--azure/--no-azure', default=False,
-    help=('Use Azure OpenAI API instead of OpenAI API.'
-          'If set, requires AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT '
-          'environment variables to be set. '
-          'If not set, uses OpenAI API with OPENAI_API_KEY environment variable.'
-          'Default is OpenAI API.')
+    help=('Use Azure OpenAI API instead of OpenAI API. '
+          'For new runs, default is --no-azure.')
 )
 @click.option(
     '--force', is_flag=True, default=False,
-    help=('Overwrite existing configuration without confirmation.'
-          'Use with caution, as it will replace any existing run configuration '
-          'for the specified run name. Default is False.')
+    help=('Skip confirmation prompts when updating existing configurations.')
 )
 @click.pass_context
-def setup(ctx, source_data_file, rubrics_folder, base_folder, 
+def setup(ctx, source_data_file, rubrics_folder, base_folder,
           annotations_folder, openai_model, max_completion_tokens, azure, force):
     """
-    Setup a new batch processing run with specified data sources and
-    configuration.
+    Setup a new batch processing run or update an existing one.
 
-    This command creates the necessary folder structure and configuration
-    files for a batch processing run. All paths can be absolute or relative.
+    For new runs, all main options are required (see example below).
+    For existing runs, you can omit options to keep current values and
+    use current configuration, or provide specific options to update
+    only those values.
 
     \b
-    Example:
-        deleanbm --run-name experiment1 setup \\
+    Examples:
+        # New run (some options required)
+        deleanbm -r experiment1 setup \\
+            # Required options
             --source-data-file ~/data/prompts.jsonl \\
             --rubrics-folder ~/research/rubrics/ \\
             --base-folder ~/experiments/batch_runs/exp1/
+            # Optional options
+            --annotations-folder ~/data/annotations \\
+            --openai-model gpt-4o \\
+            ...
+
+        # Load existing run configuration (no options needed)
+        deleanbm -r experiment1 setup
+
+        # Update only the model for existing run
+        deleanbm -r experiment1 setup --openai-model gpt-4o-mini
     """
     run_name = ctx.obj['run_name']
-
-    # Check if run already exists in registry
     registry = get_registry()
     existing_config = registry.get_run_config(run_name)
 
-    if existing_config and not force:
-        existing_base = existing_config.get('base_folder', 'unknown')
-        logging.warning(f"Run '{run_name}' already exists with base "
-                        f"folder: {existing_base}")
-        click.confirm(
-            "Do you want to overwrite this run configuration?",
-            abort=True
+    if existing_config:
+        return _handle_existing_run_setup(
+            run_name, existing_config, source_data_file,
+            rubrics_folder, base_folder, annotations_folder,
+            openai_model, max_completion_tokens, azure, force
+        )
+    else:
+        return _handle_new_run_setup(
+            run_name, source_data_file, rubrics_folder,
+            base_folder, annotations_folder, openai_model,
+            max_completion_tokens, azure, force
         )
 
-    # Convert to absolute paths
-    source_data_file = Path(source_data_file).resolve()
-    rubrics_folder = Path(rubrics_folder).resolve()
-    base_folder = Path(base_folder).resolve()
-
-    # Set default annotations folder
-    if annotations_folder is None:
-        annotations_folder = base_folder / "annotations"
-    else:
-        annotations_folder = Path(annotations_folder).resolve()
-
-    # Validate source data file format and content
-    if source_data_file.suffix not in ['.jsonl', '.csv']:
-        logging.error("Source data file must be a .jsonl or .csv file.")
-        raise SystemExit(1)
-
-    if source_data_file.suffix == '.jsonl':
-        ok, wrong_keys = check_source_data_jsonl_keys(str(source_data_file))
-        if not ok:
-            found_lines = '\n'.join([
-                f"Found: {keys} at line {i+1}."
-                for i, keys in wrong_keys.items()
-            ])
-            logging.error("JSONL file must have 'prompt' and 'idx' "
-                          f"keys on each line.\n{found_lines}")
-            raise SystemExit(1)
-    elif source_data_file.suffix == '.csv':
-        ok = check_source_data_csv_columns(str(source_data_file))
-        if not ok:
-            logging.error("CSV file must contain 'prompt' and 'idx' columns.")
-            raise SystemExit(1)
-
-    # Small attempt to validate rubrics folder
-    rubric_files = list(rubrics_folder.glob("*.txt"))
-    if not rubric_files:
-        logging.error(f"No .txt rubric files found in {rubrics_folder}")
-        logging.info("Rubrics folder should contain text files with "
-                     "demand acronyms as names.")
-        raise SystemExit(1)
-
-    rubric_names = [rf.stem for rf in rubric_files]
-    logging.info(f"Found {len(rubric_files)} rubric files: {rubric_names}")
-
-    # Create base folder structure
-    if base_folder.exists() and not force:
-        if any(base_folder.iterdir()):  # Check if folder is not empty
-            logging.warning(f"Base folder {base_folder} already exists "
-                            "and is not empty.")
-            click.confirm(
-                "Do you want to proceed? Existing files will be overwritten.",
-                abort=True
-            )
-
-    base_folder.mkdir(parents=True, exist_ok=True)
-    annotations_folder.mkdir(parents=True, exist_ok=True)
-
-    logging.info(f"Created base folder structure at {mask_path(str(base_folder))}")
-
-    # Create configuration
-    manager_file = {
-        "run": run_name,
-        "API": "AzureOpenAI" if azure else "OpenAI",
-        "base_folder": str(base_folder),
-        "source_data_file": str(source_data_file),
-        "rubrics_folder": str(rubrics_folder),
-        "annotations_folder": str(annotations_folder),
-        "openai_body_url": "/chat/completions",
-        "openai_model": openai_model,
-        "openai_max_completion_tokens": max_completion_tokens,
-        "created_at": datetime.now().isoformat(),
-    }
-
-    # Save configuration
-    config_file = base_folder / "ManagerFile.yaml"
-    with open(config_file, 'w') as f:
-        yaml.dump(manager_file, f, default_flow_style=False, sort_keys=False)
-
-    # Register in global registry
-    registry.register_run(run_name, str(config_file), str(base_folder))
-
-    logging.info(f"Configuration saved to {mask_path(str(config_file))}")
-    logging.info(f"Setup complete! You can now run other commands for run '{run_name}'")
-
-    # Show next steps
-    logging.info("Next steps:")
-    logging.info(f"1. Create input files: deleanbm -r {run_name} create-input-files")
-    logging.info(f"2. Launch batch jobs: deleanbm -r {run_name} launch [--parallel]")
-    logging.info(f"3. Check status: deleanbm -r {run_name} check [--parallel]")
 
 @cli.command()
 @click.pass_context
@@ -418,7 +308,7 @@ def unregister_run(ctx, run_name, cleanup_orphaned):
 )
 @click.option(
     '--max-completion-tokens', type=int, default=None,
-    callback=validate_positive_integer_callback,
+    callback=_validate_positive_integer_callback,
     help='Maximum number of tokens for the completion.'
 )
 @click.option(
@@ -429,7 +319,7 @@ def unregister_run(ctx, run_name, cleanup_orphaned):
 )
 @click.option(
     '--n-jobs', default=None, type=int,
-    callback=validate_positive_integer_callback,
+    callback=_validate_positive_integer_callback,
     help=('Number of parallel jobs to use for \'exact\' estimation. -1 for '
           'all available cores. If None, runs in serial mode. Recommended '
           'when requiring exact estimation for large datasets.')
@@ -505,8 +395,17 @@ def create_input_files(ctx):
 @cli.command()
 @click.option(
     '--file-type', default='jsonl',
-    type=click.Choice(['jsonl', 'csv'], case_sensitive=False),
+    type=click.Choice(['jsonl', 'csv', 'parquet'], case_sensitive=False),
     help='Type of parsed output file. Default is "jsonl".'
+)
+@click.option(
+    '--format', default='long',
+    type=click.Choice(['long', 'wide'], case_sensitive=False),
+    help=('Format of the CSV output file. "long" format will have one row per '
+          'annotation, while "wide" format will have one row per prompt '
+          'with all levels as columns. Note that "wide" will not include '
+          'finish reasons and completions, only levels, independently of the '
+          '--only-levels flag.')
 )
 @click.option(
     '--only-levels', default=False, is_flag=True,
@@ -514,13 +413,29 @@ def create_input_files(ctx):
           'finish reasons and completions.')
 )
 @click.option(
-    '--csv-format', default='long',
-    type=click.Choice(['long', 'wide'], case_sensitive=False),
-    help=('Format of the CSV output file. "long" format will have one row per '
-          'annotation, while "wide" format will have one row per prompt '
-          'with all levels as columns. Note that "wide" will not include '
-          'finish reasons and completions, only levels, independently of the '
-          '--only-levels flag.')
+    '--only-success', default=False, is_flag=True,
+    help=('If set, will only include the successful annotations in the output file. '
+          'Note that this is mutually exclusive with --only-failures.')
+)
+@click.option(
+    '--only-failures', default=False, is_flag=True,
+    help=('If set, will only include the failed annotations in the output file.'
+          'Note that this is mutually exclusive with --only-success.')
+)
+@click.option(
+    '--split-by-demand', default=False, is_flag=True,
+    help=('If set, will create separate output files for each demand. ')
+)
+@click.option(
+    '--finish-reason', default=None,
+    type=click.Choice(['stop', 'length', 'other'], case_sensitive=False),
+    help=('Filter results by finish reason. '
+          'If specified, only annotations with the specified finish reason will be included. '
+          'If not specified, all finish reasons will be included.')
+)
+@click.option(
+    '--include-prompts', default=False, is_flag=True,
+    help=('If set, will include the original prompts in the output file. ')
 )
 @click.option(
     '--verbose', is_flag=True, default=True,
@@ -536,7 +451,6 @@ def parse_output_files(ctx, file_type, only_levels, csv_format, verbose):
     base_folder = ctx.obj['base_folder']
     annotations_path = ctx.obj['annotations_folder']
     run_name = ctx.obj['run_name']
-    output_path = f"{annotations_path}/{run_name}_annotations.{file_type}"
 
     logging.info("Parsing batch output files...")
     try:
@@ -549,12 +463,27 @@ def parse_output_files(ctx, file_type, only_levels, csv_format, verbose):
         logging.error(f"Error parsing output files: {e}")
         raise SystemExit(1)
 
-    save_parsed_results(
-        results=results,
-        output_path=output_path,
-        file_type=file_type,
-        csv_format=csv_format,
-    )
+    output_path = f"{annotations_path}/{run_name}_annotations"
+    if file_type == 'csv':
+        output_path += f"_{csv_format}"
+        if only_levels and csv_format == 'long':
+            output_path += "_only_levels"
+    else:
+        if only_levels:
+            output_path += "_only_levels"
+    output_path += f".{file_type}"
+
+    logging.info(f"Saving parsed results to {output_path}")
+    try:
+        save_parsed_results(
+            results=results,
+            output_path=output_path,
+            file_type=file_type,
+            csv_format=csv_format,
+        )
+    except Exception as e:
+        logging.error(f"Error saving parsed results: {e}")
+        raise SystemExit(1)
 
 
 @cli.command()
@@ -645,7 +574,7 @@ def check(ctx, demands, parallel):
 
     # Get batch ID map, exits if no batch jobs found launched
     batch_id_map = _safe_get_batch_id_map(ctx)
-    demands_launched = _get_demands_launched(batch_id_map)
+    demands_launched = _get_launched_demands(batch_id_map)
 
     if demands:
         subfolders, batch_ids, failed = _get_demand_subfolders_and_batch_ids(
@@ -704,7 +633,7 @@ def download(ctx, demands, parallel):
 
     # Get batch ID map, exits if no batch jobs found launched
     batch_id_map = _safe_get_batch_id_map(ctx)
-    demands_launched = _get_demands_launched(batch_id_map)
+    demands_launched = _get_launched_demands(batch_id_map)
 
     if demands:
         subfolders, batch_ids, failed = _get_demand_subfolders_and_batch_ids(
@@ -756,7 +685,7 @@ def cancel(ctx, demands):
 
     # Get batch ID map, exits if no batch jobs found launched
     batch_id_map = _safe_get_batch_id_map(ctx)
-    demands_launched = _get_demands_launched(batch_id_map)
+    demands_launched = _get_launched_demands(batch_id_map)
 
     if demands:
         subfolders, batch_ids, failed = _get_demand_subfolders_and_batch_ids(
@@ -787,13 +716,13 @@ def cancel(ctx, demands):
 @cli.command()
 @click.option(
     '--check-interval', default=1800, type=int,
-    callback=validate_positive_integer_callback,
+    callback=_validate_positive_integer_callback,
     help=('Interval (seconds) between attempts to download results of '
           'OpenAI Batch Jobs.')
 )
 @click.option(
     '--n-jobs', default=5, type=int,
-    callback=validate_positive_integer_callback,
+    callback=_validate_positive_integer_callback,
     help='Number of parallel jobs. -1 for all available cores.'
 )
 @click.pass_context
@@ -824,95 +753,3 @@ def list_jobs(ctx, status):
     client = ctx.obj['client']
     batch_id_map = _safe_get_batch_id_map(ctx)
     list_batch_jobs(client, batch_id_map, status)
-
-
-#=======================================================================
-# Private Safe Getters
-#=======================================================================
-
-def _safe_get_subfolders(base_folder: str | Path) -> list[Path]:
-    """
-    Safely get the all the demand subfolders from the base folder.
-    If no subfolders are found, the program ends.
-    This help to prevent attempting to do operations that
-    requires the subfolders and input files to be created first.
-    """
-    subfolders = [
-        f for f in Path(base_folder).iterdir()
-        if f.is_dir() and (f/"input.jsonl").exists()
-    ]
-    if not subfolders:
-        logging.error(f"No subfolders found in base folder '{base_folder}'. "
-                      "Please create input files first using "
-                      "'create-input-files' command.")
-        raise SystemExit(1)
-    return subfolders
-
-
-def _get_demand_input_files(
-        demands: list,
-        all_subfolders: list[Path]
-    ) -> tuple[list[Path], list[str]]:
-    """Get the subfolders for given demands."""
-    infiles = []
-    failed = []
-    for demand in demands:
-        demand_subfolders = [
-            subf for subf in all_subfolders
-            if subf.name.startswith(demand)
-        ]
-        if not demand_subfolders:
-            failed.append(demand)
-        for subfolder in demand_subfolders:
-            input_file = subfolder / "input.jsonl"
-            if input_file.exists():
-                infiles.append(input_file)
-            else:
-                failed.append(demand)
-    return infiles, failed
-
-
-def _safe_get_batch_id_map(ctx) -> dict:
-    """
-    Safely get the batch ID map from the context.
-    If no jobs are found, the program ends.
-    This helps to prevent attempting operations
-    that requires the jobs be launched first.
-    """
-    batch_id_map = ctx.obj.get('subfolder2id', {})
-    if not batch_id_map:
-        logging.error("No jobs found. Please launch batch jobs first "
-                      "using 'launch' command.")
-        raise SystemExit(1)
-    return batch_id_map
-
-
-def _get_demands_launched(batch_id_map: dict) -> list[str]:
-    """Get the list of demands launched from the batch ID map."""
-    return [Path(subf).name for subf in batch_id_map.keys()]
-
-
-def _get_demand_subfolders_and_batch_ids(
-        demands: list[str],
-        all_subfolders: list[Path],
-        batch_id_map: dict[str, str]
-    ) -> tuple[list[Path], list[str], list[str]]:
-    """Get the subfolder and batch ID for given demands."""
-    subfs = []
-    bids = []
-    failed = []
-    for demand in demands:
-        demand_subfolders = [
-            subf for subf in all_subfolders
-            if subf.name.startswith(demand)
-        ]
-        if not demand_subfolders:
-            failed.append(demand)
-        for subfolder in demand_subfolders:
-            batch_id = batch_id_map.get(str(subfolder))
-            if batch_id:
-                subfs.append(subfolder)
-                bids.append(batch_id)
-            else:
-                failed.append(demand)
-    return subfs, bids, failed
