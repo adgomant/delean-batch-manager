@@ -4,7 +4,7 @@ import json
 import polars as pl
 
 
-def check_source_data_jsonl_keys(source_data_file):
+def check_jsonl_source_data_keys(source_data_file):
     """Check if each object inside JSONL file has the required keys 'prompt' and 'idx'."""
     wrong_keys = {}
     with open(source_data_file, 'r') as f:
@@ -17,9 +17,14 @@ def check_source_data_jsonl_keys(source_data_file):
     return True, None
 
 
-def check_source_data_csv_columns(source_data_file):
-    """Check if the CSV file has the required columns 'prompt' and 'idx'."""
-    df = pl.read_csv(source_data_file)
+def check_tabular_source_data_columns(source_data_file):
+    """Check if the tabular file (CSV or PARQUET) has the required columns 'prompt' and 'idx'."""
+    if source_data_file.endswith('.csv'):
+        df = pl.read_csv(source_data_file)
+    elif source_data_file.endswith('.parquet'):
+        df = pl.read_parquet(source_data_file)
+    else:
+        raise ValueError("Source data file must be a CSV or PARQUET file.")
     if 'prompt' not in df.columns or 'idx' not in df.columns:
         return False
     return True
