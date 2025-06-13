@@ -6,9 +6,7 @@ import json
 import math
 from pathlib import Path
 from tqdm.auto import tqdm
-from typing import List, Optional, Literal
-
-
+from typing import List, Optional
 
 
 def get_full_instruction(subdomain, rubric_content, prompt):
@@ -55,7 +53,7 @@ def create_subdomain_batch_input_files(
     Create JSONL batch files for each subdomain based on the provided prompt data and rubrics.
 
     Args:
-        prompt_data (list of dicts): List of dictionaries containing the prompts and their indices.
+        prompt_data (list of dicts): List of dictionaries containing 'prompt' and 'custom_id' keys.
         rubrics (dict): A dictionary of all rubrics with their full names and content indexed by acronym.
         output_dir (str): Directory to save subdomain directories containing the batch input files.
         max_completion_tokens (int): Maximum number of tokens for the completion. The larger the better but may become costly.
@@ -91,7 +89,7 @@ def create_subdomain_batch_input_files(
                 )
 
                 request = {
-                    "custom_id": row['idx'],
+                    "custom_id": row['custom_id'],
                     "method": "POST",
                     "url": body_url,
                     "body": {
