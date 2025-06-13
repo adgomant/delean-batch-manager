@@ -218,7 +218,7 @@ def _validate_source_data_file(source_data_file_path):
     if source_data_file.suffix == '.jsonl':
         ok, wrong_keys = check_jsonl_source_data_keys(str(source_data_file))
         if not ok:
-            logging.error("JSONL file must have 'prompt' and 'idx' "
+            logging.error("JSONL file must have 'prompt' and 'custom_id' "
                           f"keys on each line but found:")
             for i, keys in wrong_keys.items():
                 logging.error(f"  Line {i+1}: {keys}")
@@ -227,7 +227,7 @@ def _validate_source_data_file(source_data_file_path):
     elif source_data_file.suffix in ['.csv', '.parquet']:
         ok = check_tabular_source_data_columns(str(source_data_file))
         if not ok:
-            logging.error("Tabular files (CSV or PARQUET) must contain 'prompt' and 'idx' columns.")
+            logging.error("Tabular files (CSV or PARQUET) must contain 'prompt' and 'custom_id' columns.")
             raise SystemExit(1)
 
 
