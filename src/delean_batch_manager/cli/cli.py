@@ -358,9 +358,18 @@ def get_pricing(ctx, openai_model, max_completion_tokens, estimation, n_jobs):
 
 
 @cli.command()
+@click.argument('demands', nargs=-1)
 @click.pass_context
-def create_input_files(ctx):
-    """Create JSONL batch files for OpenAI Batch API."""
+def create_input_files(ctx, demands):
+    """
+    Create JSONL batch files for OpenAI Batch API.
+
+    \b
+    DEMANDS:
+      Demand(s) for which to create input files separated by spaces.
+      If not provided, files will be created for all rubrics within rubrics folder.
+      Note that demands should match the .txt names in the rubrics folder.
+    """
     logging.info("Reading prompt data...")
     source_data_path = ctx.obj['source_data_file']
     prompt_data = read_source_data(source_data_path)
@@ -373,6 +382,13 @@ def create_input_files(ctx):
     except Exception as e:
         logging.error(f"Error reading rubrics from folder '{rubrics_folder}': {e}")
         raise SystemExit(1)
+
+    if demands:
+        # Filter rubrics to only include those for specified demands
+        rubrics = {demand: rubrics[demand] for demand in demands if demand in rubrics}
+        if not rubrics:
+            logging.error(f"No valid rubrics found for demands: {demands}")
+            raise SystemExit(1)
 
     # OpenAI batch API limits: https://platform.openai.com/docs/guides/batch#rate-limits
     # Azure OpenAI batch API limits: https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/batch?tabs=global-batch%2Cstandard-input%2Cpython-secure&pivots=programming-language-python
@@ -418,7 +434,7 @@ def create_input_files(ctx):
           'Note that this is mutually exclusive with --only-failures.')
 )
 @click.option(
-    '--only-failures', default=False, is_flag=True,
+    '--only-failed', default=False, is_flag=True,
     help=('If set, will only include the failed annotations in the output file.'
           'Note that this is mutually exclusive with --only-success.')
 )
