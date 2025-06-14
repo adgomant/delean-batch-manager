@@ -87,7 +87,7 @@ def _handle_existing_run_setup(
             )
 
         # If proceeding, validate provided paths
-        _validate_configuration_paths(provided_options)
+        _validate_configuration_paths(provided_options, force)
 
     # Add non-path options
     if openai_model is not None:
@@ -106,7 +106,7 @@ def _handle_existing_run_setup(
 
     # Apply updates with special handling
     updated_config = _apply_configuration_updates(
-        existing_config, provided_options, annotations_folder
+        existing_config, provided_options
     )
 
     # Save configuration
