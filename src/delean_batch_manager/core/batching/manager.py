@@ -3,30 +3,28 @@
 import os
 import logging
 import openai
+import polars as pl
 from pathlib import Path
 from typing import List, Literal
 
 
 from ..batching.pricing import get_batch_api_pricing
-from ..batching.files import (
-    create_subdomain_batch_input_files,
-    parse_subdomain_batch_output_files,
-    save_parsed_results,
-)
+from ..batching.files import create_subdomain_batch_input_files
+from ..batching.parse import BatchOutputParser
 from ..batching.jobs import (
     launch_batch_job,
-    launch_all_batch_jobs,
-    launch_all_batch_jobs_parallel,
+    launch_multiple_batch_jobs,
+    launch_multiple_batch_jobs_parallel,
     check_batch_status,
-    check_all_batch_status,
-    check_all_batch_status_parallel,
+    check_multiple_batch_status,
+    check_multiple_batch_status_parallel,
     download_batch_result,
-    download_all_batch_results,
-    download_all_batch_results_parallel,
-    track_and_download_all_batch_jobs_parallel_loop,
+    download_multiple_batch_results,
+    download_multiple_batch_results_parallel,
+    track_and_download_multiple_batch_jobs_parallel_loop,
     list_batch_jobs,
     cancel_batch_job,
-    cancel_all_batch_jobs
+    cancel_multiple_batch_jobs
 )
 from ..batching.utils import (
     save_batch_id_map_to_file,
@@ -78,7 +76,7 @@ class DeLeAnBatchManager:
         self.__ensure_output_paths()
 
         # Try to load existing batch ID map from file if it exists in the base folder
-        self.load_batch_id_map(verbose=False)
+        self.load_batch_id_map_from_file(verbose=False)
 
     def __assert_required_paths(self):
         assert_required_path(self.source_data_path, description="Source data path")
@@ -187,16 +185,21 @@ class DeLeAnBatchManager:
             max_bytes_per_file=max_bytes_per_file
         )
 
-        self._input_files = self.get_batch_input_files(demand_levels=demands)
+        self._input_files = self.get_batch_files(demand_levels=demands, which='input')
 
     def parse_output_files(
             self,
             only_levels: bool = False,
+            only_succeed: bool = False,
+            only_failed: bool = False,
+            finish_reason: str | None = None,
+            include_prompts: bool = False,
             verbose: bool = True,
             output_path: str | Path | None = None,
-            file_type: Literal['jsonl', 'csv'] | None = None,
-            csv_format: Literal['long', 'wide'] | None = None,
-        ):
+            file_type: Literal['jsonl', 'csv', 'parquet'] | None = None,
+            format: Literal['long', 'wide'] | None = None,
+            prefix: str = "",
+        ) -> dict | pl.DataFrame:
         """
         Parse all available output files in self.base folder from batch jobs
         and save the results to a specified output path if specified.
@@ -204,96 +207,76 @@ class DeLeAnBatchManager:
         Args:
             only_levels (bool): If True, only saves demand levels without
                 additional information about finish reasons and model responses.
+            only_succeed (bool): If True, only includes successful annotations in the output.
+            only_failed (bool): If True, only includes failed annotations in the output.
+            finish_reason (str | None): If specified, filters results by the finish reason.
+            include_prompts (bool): If True, includes the original prompts in the output.
             verbose (bool): Whether to log detailed information per example
                 when failing to extract annotations.
             output_path (str | Path | None): Path to save the parsed output files results.
                 Path can be a either a file path or a directory. If a directory is provided, 
                 the results will be saved as 'annotations.jsonl' or 'annotations.csv'
                 in that directory. If not provided, the results will not be saved to a file.
-            file_type (str | None): Type of file to save the results. Can be 'jsonl' or 'csv'.
-                Can be 'long' or 'wide'. "long" format will have one row per
-                annotation, while "wide" format will have one row per prompt
-                with all levels as columns. Note that "wide" will not include
-                finish reasons and completions, only levels, independently of
-                the --only-levels flag.
-            csv_format (str | None): Format of the CSV file if file_type is 'csv'.
+            file_type (str | None): Type of file to save the results. Can be 'jsonl', 'csv', or 'parquet'.
+            format (str | None): Format of the output if file_type is 'csv' or 'parquet'. "long" or "wide".
+            prefix (str): Prefix for output files.
 
         Returns:
-            dict: A dictionary containing the parsed outputs with prompt custom ids as keys.
-            Each entry includes a dictionary with demands as keys and a dictionary
-            with level, finish_reason, model response fields. Note that if
-            only_levels is True, the finish_reason and model response fields will not appear.
+            dict or pd.DataFrame: The parsed outputs as a dictionary (for jsonl) or DataFrame (for csv/parquet).
 
         Raises:
             AssertionError: If no output files were downloaded yet.
-            Exception: If file_type or csv_format is not specified when output_path is provided.
+            Exception: If file_type or format is not specified when output_path is provided.
         """
         assert self._output_files, "No output files found. Please download batch jobs results first."
 
+        source_prompts = None
+        if include_prompts:
+            logging.info(f"Reading prompts from {mask_path(self.source_data_path)}")
+            source_prompts = read_source_data(self.source_data_path, as_map=True)
+        
         logging.info(f"Parsing output files in {mask_path(self.base_folder)}")
-        results = parse_subdomain_batch_output_files(
-            base_folder=self.base_folder,
+        
+        parser = BatchOutputParser(
             only_levels=only_levels,
-            verbose=verbose
+            only_succeed=only_succeed,
+            only_failed=only_failed,
+            finish_reason=finish_reason,
+            source_prompts=source_prompts,
+            verbose=verbose,
+            format=format
         )
-        logging.info(f"Parsed {len(results)} results out of {self._source_data_length} prompts.")
+        parser.parse(self._output_files)
+        logging.info(f"Parsed {len(parser)} results out of {self._source_data_length} prompts.")
 
         if output_path:
-            if not file_type or not csv_format:
-                raise Exception("file_type and csv_format must be specified if output_path is provided.")
-
+            if not file_type or (file_type in ['csv', 'parquet'] and not format):
+                raise Exception("file_type and format must be specified if output_path is provided for csv/parquet.")
             output_path = Path(output_path).resolve()
-            save_parsed_results(
-                results=results,
-                output_path=output_path,
-                file_type=file_type,
-                csv_format=csv_format
-            )
-
+            if file_type == 'jsonl':
+                parser.write_json(output_path, prefix=prefix)
+            elif file_type == 'csv':
+                parser.write_csv(output_path, prefix=prefix)
+            elif file_type == 'parquet':
+                parser.write_parquet(output_path, prefix=prefix)
+            else:
+                raise Exception(f"Unsupported file_type: {file_type}")
             logging.info(f"Parsed output files results saved in {mask_path(output_path)}")
 
-        return results
+        return parser.to_jsonl() if file_type == 'jsonl' else parser.to_df()
 
-    def get_batch_input_files(self, demands: str | list | None = None) -> List[Path]:
+    def get_batch_files(
+            self,
+            demands: str | list | None = None,
+            which: Literal['input', 'output'] = 'input'
+        ) -> List[Path]:
         """
-        Get input files for specified demand levels.
-
-        Args:
-            demands (str | list | None): Demand name(s) to filter input files.
-                If None, returns all input files.
-
-        Returns:
-            List[Path]: List of input file paths corresponding to the specified demand name(s).
-
-        Raises:
-            ValueError: If demands is not a string or list of strings.
-            Exception: If no input files are found for the specified demand name(s).
-        """
-        input_files = Path(self.base_folder).glob("*/input.jsonl")
-
-        if demands is None:
-            return list(input_files)
-        if isinstance(demands, str):
-            demands = [demands]
-        if not isinstance(demands, list):
-            raise ValueError("demands must be a string or a list of strings.")
-
-        filtered_files = []
-        for demand in demands:
-            demand_files = [file for file in input_files if demand in file.name]
-            if not demand_files:
-                raise Exception(f"No input files found for demand '{demand}'. Please ensure the demand name is correct and input files are created.")
-            filtered_files.extend(demand_files)
-
-        return filtered_files
-
-    def get_batch_output_files(self, demands: str | list | None = None) -> List[Path]:
-        """
-        Get output files for specified demand levels.
+        Get input or output files for specified demand levels.
 
         Args:
             demands (str | list | None): Demand name(s) to filter output files. 
                 If None, returns all output files.
+            which (str): Type of files to return, either 'input' or 'output'.
 
         Returns:
             List[Path]: List of output file paths corresponding to the specified demand name(s).
@@ -302,10 +285,10 @@ class DeLeAnBatchManager:
             ValueError: If demands is not a string or list of strings.
             Exception: If no output files are found for the specified demand name(s).
         """
-        output_files = Path(self.base_folder).glob("*/output.jsonl")
+        files = Path(self.base_folder).rglob(f"{which}.jsonl")
 
         if demands is None:
-            return list(output_files)
+            return list(files)
         if isinstance(demands, str):
             demands = [demands]
         if not isinstance(demands, list):
@@ -313,9 +296,10 @@ class DeLeAnBatchManager:
 
         filtered_files = []
         for demand in demands:
-            demand_files = [file for file in output_files if demand in file.name]
+            demand_files = [file for file in files if demand in file.name]
             if not demand_files:
-                raise Exception(f"No output files found for demand '{demand}'. Please ensure the demand name is correct and output files are downloaded.")
+                raise Exception(f"No {which} files found for demand '{demand}'. "
+                                "Please ensure the demand name is correct and output files are downloaded.")
             filtered_files.extend(demand_files)
 
         return filtered_files
@@ -358,18 +342,17 @@ class DeLeAnBatchManager:
             AssertionError: If no input files are found in the base folder.
         """
         assert self._input_files, "No input files found. Please create input files first."
-        if parallel:
-            self.batch_id_map = launch_all_batch_jobs_parallel(
-                client=self.client,
-                base_folder=self.base_folder,
-                endpoint=self.endpoint
-            )
-        else:
-            self.batch_id_map = launch_all_batch_jobs(
-                client=self.client,
-                base_folder=self.base_folder,
-                endpoint=self.endpoint
-            )
+        input_files = self.get_batch_files(which='input')
+        launch_func = (
+            launch_multiple_batch_jobs_parallel if parallel
+            else launch_multiple_batch_jobs
+        )
+
+        self.batch_id_map = launch_func(
+            client=self.client,
+            input_files=input_files,
+            endpoint=self.endpoint
+        )
         self.save_batch_id_map_to_file()
         return self.batch_id_map
 
@@ -471,14 +454,14 @@ class DeLeAnBatchManager:
         """
         assert self.batch_id_map, "No batch IDs stored in manager. Launch jobs first."
 
-        if parallel:
-            statuses, summary = check_all_batch_status_parallel(
-                self.client, list(self.batch_id_map.values()), verbose=verbose
-            )
-        else:
-            statuses, summary = check_all_batch_status(
-                self.client, list(self.batch_id_map.values()), verbose=verbose
-            )
+        check_func = (
+            check_multiple_batch_status_parallel if parallel 
+            else check_multiple_batch_status
+        )
+
+        statuses, summary = check_func(
+            self.client, list(self.batch_id_map.values()), verbose=verbose
+        )
 
         for bid, status in statuses.items():
             if status == 'completed':
@@ -525,7 +508,8 @@ class DeLeAnBatchManager:
     def download_single_result(
             self,
             batch_id: str,
-            return_summary_dict: bool = False
+            return_as: Literal['dict', 'print'] | None = 'dict',
+            save_summary_dict: bool = False
         ):
         """
         Download results for a single batch job by its ID.
@@ -536,7 +520,9 @@ class DeLeAnBatchManager:
 
         Args:
             batch_id (str): The ID of the batch job to download results for.
-            return_summary_dict (bool): Whether to return a summary dictionary of the results.
+            return_as (str, None): Whether to return the summary as a dictionary or print it.
+                Can be 'dict' or 'print'. If None, no summary is returned.
+            save_summary_dict (bool): Whether to save the summary as a dictionary apart from text.
 
         Returns:
             dict: A summary dictionary of the results if return_summary_dict is True
@@ -561,17 +547,19 @@ class DeLeAnBatchManager:
                     client=self.client,
                     batch_id=batch_id,
                     output_folder=subfolder,
-                    return_summary_dict=return_summary_dict
+                    return_as=return_as,
+                    save_summary_dict=save_summary_dict
                 )
                 break
 
-        self._output_files = self.get_batch_output_files()
-        return summary_dict if return_summary_dict else None
+        self._output_files = self.get_batch_files(which='output')
+        return summary_dict
 
     def download_all_results(
             self,
             parallel: bool = False,
-            return_summary_dict: bool = False
+            return_as: Literal['dict', 'print'] | None = 'dict',
+            save_summary_dict: bool = False
         ):
         """
         Download results for all completed batch jobs stored in the manager.
@@ -583,8 +571,10 @@ class DeLeAnBatchManager:
 
         Args:
             parallel (bool): Whether to download results in parallel.
-            Recommended for multiple dense jobs with large files to be downloaded.
-            return_summary_dict (bool): Whether to return a summary dictionary of the results.
+                Recommended for multiple dense jobs with large files to be downloaded.
+            return_as (str, None): Whether to return the general summary as a dictionary or print it.
+                Can be 'dict' or 'print'. If None, no summary is returned.
+            save_summary_dict (bool): Whether to save the general summary as a dictionary apart from text.
 
         Returns:
             dict: A summary dictionary of the results if return_summary_dict is True.
@@ -602,30 +592,31 @@ class DeLeAnBatchManager:
                 logging.error("No batch jobs are completed. Cannot download results until at least one job is 'completed' or 'failed'.")
                 return
 
-        finalized_batch_id_map = {k: v for k, v in self.batch_id_map.items() if v in self._completed}
-        if parallel:
-            summary_dict = download_all_batch_results_parallel(
-                client=self.client,
-                batch_id_map=finalized_batch_id_map,
-                base_folder=self.base_folder,
-                return_summary_dict=return_summary_dict
-            )
-        else:
-            summary_dict = download_all_batch_results(
-                client=self.client,
-                batch_id_map=finalized_batch_id_map,
-                base_folder=self.base_folder,
-                return_summary_dict=return_summary_dict
-            )
+        finalized_batch_id_map = {
+            k: v for k, v in self.batch_id_map.items() 
+            if v in self._completed
+        }
+        download_func = (
+            download_multiple_batch_results_parallel if parallel 
+            else download_multiple_batch_results
+        )
+        summary_dict = download_func(
+            client=self.client,
+            batch_id_map=finalized_batch_id_map,
+            base_folder=self.base_folder,
+            return_as=return_as,
+            save_summary_dict=save_summary_dict
+        )
 
-        self._output_files = self.get_batch_output_files()
-        return summary_dict if summary_dict else None
+        self._output_files = self.get_batch_files(which='output')
+        return summary_dict
 
     def download(
             self,
             batch_id: str | None = None,
             parallel: bool = False,
-            return_summary_dict: bool = False
+            return_as: Literal['dict', 'print'] | None = 'dict',
+            save_summary_dict: bool = False
         ) -> dict | None:
         """
         Download results for a single batch job or all completed batch jobs.
@@ -639,8 +630,9 @@ class DeLeAnBatchManager:
             parallel (bool): Whether to download results in parallel
                 if downloading all jobs. Recommended for multiple dense jobs
                 with large files to be downloaded
-            return_summary_dict (bool): Whether to return a summary dictionary
-                of the results.
+            return_as (str, None): Whether to return the summary as a dictionary or print it.
+                Can be 'dict' or 'print'. If None, no summary is returned.
+            save_summary_dict (bool): Whether to save the summary/ies as dictionary apart from text.
 
         Returns:
             dict: A summary dictionary of the results if return_summary_dict is True.
@@ -655,11 +647,11 @@ class DeLeAnBatchManager:
             if not isinstance(batch_id, str):
                 raise ValueError("batch_id must be a string.")
             return self.download_single_result(
-                batch_id, return_summary_dict=return_summary_dict
+                batch_id, return_as=return_as, save_summary_dict=save_summary_dict
             )
         else:
             return self.download_all_results(
-                parallel=parallel, return_summary_dict=return_summary_dict
+                parallel=parallel, return_as=return_as, save_summary_dict=save_summary_dict
             )
 
     def track_and_download_loop(self, check_interval: int = 1800, n_jobs: int = 5):
@@ -690,7 +682,7 @@ class DeLeAnBatchManager:
             raise ValueError("check_interval must be a positive integer.")
 
         max_workers = resolve_n_jobs(n_jobs, verbose=False)
-        completed, failed = track_and_download_all_batch_jobs_parallel_loop(
+        completed, failed = track_and_download_multiple_batch_jobs_parallel_loop(
             client=self.client,
             batch_id_map=self.batch_id_map,
             base_folder=self.base_folder,
@@ -769,7 +761,7 @@ class DeLeAnBatchManager:
             AssertionError: If no batch IDs are stored in the manager.
         """
         assert self.batch_id_map, "No batch IDs stored in manager."
-        cancel_all_batch_jobs(self.client, list(self.batch_id_map.values()))
+        cancel_multiple_batch_jobs(self.client, list(self.batch_id_map.values()))
         self.batch_id_map.clear()
 
     def cancel(self, batch_id: str | None = None):
@@ -829,7 +821,7 @@ class DeLeAnBatchManager:
 
         logging.info("Tracking and downloading all batch jobs (this may take a while)...")
         self.track_and_download_loop(
-            check_interval=check_interval, max_workers=max_workers_for_track
+            check_interval=check_interval, n_jobs=max_workers_for_track
         )
         logging.info(f"All batch jobs tracked and downloaded in {mask_path(os.path.join(self.base_folder, '*', 'output.jsonl'))}.")
 
