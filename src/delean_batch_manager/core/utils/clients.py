@@ -2,8 +2,6 @@
 
 import os
 import openai
-import logging
-
 
 def create_openai_client(api_key=None):
     """
@@ -18,7 +16,6 @@ def create_openai_client(api_key=None):
         raise ValueError("No OpenAI API key provided or found in environment.")
 
     client = openai.OpenAI(api_key=api_key)
-    logging.info("OpenAI client created successfully.")
     return client
 
 
