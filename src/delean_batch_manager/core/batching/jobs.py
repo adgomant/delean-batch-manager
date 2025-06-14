@@ -7,27 +7,24 @@ It includes retry logic for transient errors and supports parallel execution
 for efficiency.
 """
 
-import os
-import openai
-import logging
-import time
-from datetime import datetime
-from collections import Counter
-from typing import List
-from tqdm.auto import tqdm
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    wait_exponential,
-    stop_after_attempt
-)
 
+import os
+import time
+import logging
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional, Literal
+
+import openai
+from tenacity import (retry, retry_if_exception_type, stop_after_attempt,
+                      wait_exponential)
+from tqdm.auto import tqdm
+
+from ..utils.misc import mask_path
 from .summary import save_batch_summary, save_general_summary
 from .utils import save_batch_metadata
-from ..utils.misc import mask_path
-
 
 LAUNCH_MAX_WORKERS = 3    # Conservative number of workers to avoid rate limits
 DOWNLOAD_MAX_WORKERS = 5  # Moderate number of workers for downloading results
@@ -53,7 +50,12 @@ retry_on_transient_openai_errors = retry(
 #=============================================================================
 
 @retry_on_transient_openai_errors
-def launch_batch_job(client, input_file, endpoint='/chat/completions', metadata_path=None):
+def launch_batch_job(
+        client: openai.OpenAI | openai.AzureOpenAI,
+        input_file: str | Path,
+        endpoint: str = '/chat/completions',
+        metadata_path: str | Path = None
+    ):
     """
     Launch a batch job using the OpenAI Batch API.
 
@@ -67,7 +69,7 @@ def launch_batch_job(client, input_file, endpoint='/chat/completions', metadata_
     if os.path.getsize(input_file) == 0:
         raise ValueError(f"Input file is empty: {input_file}")
 
-    logging.info(f"Launching batch job for {mask_path(input_file)}...")
+    logging.info("Launching batch job for %s...", mask_path(input_file))
 
     batch_file = client.files.create(
         file=open(input_file, 'rb'),
@@ -93,43 +95,37 @@ def launch_batch_job(client, input_file, endpoint='/chat/completions', metadata_
     return batch_job.id
 
 
-def launch_all_batch_jobs(client, base_folder, endpoint="/chat/completions"):
+def launch_multiple_batch_jobs(
+        client: openai.OpenAI | openai.AzureOpenAI,
+        input_files: list[str | Path],
+        endpoint: str = "/chat/completions"
+    ):
     """
-    Launch all batch jobs in subfolders of the input_folder.
-    Each subfolder must contain a file named 'input.jsonl'.
+    Launch all batch jobs for the provided list of input files.
 
     Args:
         client: OpenAI API client.
-        base_folder (str): Path to the folder containing subfolders with input.jsonl files.
+        input_files (list[str | Path]): List of input.jsonl file paths.
         endpoint (str): API endpoint for the batch job. Defaults to "/v1/chat/completions".
 
     Returns:
-        dict: Mapping from folder name to batch ID.
+        dict: Mapping from subfolder path to batch ID.
     """
-    batch_ids = {}
+    batch_id_map = {}
 
-    # Collect all valid input files first
-    input_files = []
-    for infile in Path(base_folder).glob("*/input.jsonl"):
-        subfolder_path = infile.parent
-        metadata_path = subfolder_path / "batch_metadata.json"
-        input_files.append((str(infile), str(metadata_path), str(subfolder_path)))
     if not input_files:
-        logging.warning("Cannot launch any job because no valid input files "
-                        f"were found in {mask_path(base_folder)}. "
-                        "Please ensure 'input.jsonl' files were created.")
-        return {}
+        raise ValueError("No input files provided. Please ensure 'input.jsonl' files were specified.")
 
     logging.info(f"Launching {len(input_files)} batch jobs")
 
-    for input_file, metadata_path, subfolder_path in tqdm(input_files, desc="Launching batch jobs"):
-        logging.info(f"Launching batch job for {mask_path(input_file)}...")
+    for input_file in tqdm(input_files, desc="Launching batch jobs"):
+        input_file = Path(input_file)
+        subfolder_path = str(input_file.parent)
+        logging.info(f"Launching batch job for {mask_path(str(input_file))}...")
 
-        # Launch the batch job
         try:
-            batch_id = launch_batch_job(client, input_file, endpoint=endpoint, metadata_path=metadata_path)
-            batch_ids[subfolder_path] = batch_id
-            logging.info(f"Launched job for {mask_path(subfolder_path)}: {batch_id}")
+            batch_id = launch_batch_job(client, str(input_file), endpoint=endpoint)
+            batch_id_map[subfolder_path] = batch_id
         except Exception as e:
             logging.error(f"Failed to launch job for {mask_path(subfolder_path)}: {e}")
             continue
@@ -137,13 +133,13 @@ def launch_all_batch_jobs(client, base_folder, endpoint="/chat/completions"):
         # Sleep to avoid hitting rate limits
         time.sleep(3)
 
-    logging.info(f"Successfully launched all batch jobs.")
-    return batch_ids
+    logging.info("All batch jobs launched successfully.")
+    return batch_id_map
 
 
-def launch_all_batch_jobs_parallel(
+def launch_multiple_batch_jobs_parallel(
         client: openai.OpenAI | openai.AzureOpenAI,
-        base_folder: str,
+        input_files: list[str | Path],
         endpoint: str = "/chat/completions",
         max_workers: int = LAUNCH_MAX_WORKERS
     ):
@@ -152,34 +148,31 @@ def launch_all_batch_jobs_parallel(
 
     Args:
         client: OpenAI API client.
-        base_folder (str): Path to folder containing subfolders with input.jsonl files.
+        input_files (list[str | Path]): List of input.jsonl file paths.
         endpoint (str): API endpoint for batch jobs.
         max_workers (int): Maximum concurrent launches (recommended: 3-5).
 
     Returns:
-        dict: Mapping from folder name to batch ID.
+        dict: Mapping from subfolder path to batch ID.
     """
-    batch_ids = {}
+    batch_id_map = {}
 
-    # Collect all valid input files first
-    # Collect all valid input files first
-    input_files = []
-    for infile in Path(base_folder).glob("*/input.jsonl"):
-        subfolder_path = infile.parent
-        metadata_path = subfolder_path / "batch_metadata.json"
-        input_files.append((str(infile), str(metadata_path), str(subfolder_path)))
     if not input_files:
-        logging.warning("Cannot launch any job because no valid input files "
-                        f"were found in {mask_path(base_folder)}. "
-                        "Please ensure 'input.jsonl' files were created.")
+        logging.warning("Cannot launch any job because no input files were provided. Please ensure 'input.jsonl' files were specified.")
         return {}
 
     logging.info(f"Launching {len(input_files)} batch jobs in parallel (max_workers={max_workers})...")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_path = {
-            executor.submit(launch_batch_job, client, input_file, endpoint, metadata_path): subfolder_path
-            for input_file, metadata_path, subfolder_path in input_files
+            executor.submit(
+                launch_batch_job,
+                client,
+                str(Path(input_file)),
+                endpoint,
+                str(Path(input_file).parent / "batch_metadata.json")
+            ): str(Path(input_file).parent)
+            for input_file in input_files
         }
 
         # Collect results as they complete
@@ -187,13 +180,12 @@ def launch_all_batch_jobs_parallel(
             subfolder_path = future_to_path[future]
             try:
                 batch_id = future.result()
-                batch_ids[subfolder_path] = batch_id
-                logging.info(f"Launched job for {mask_path(subfolder_path)}: {batch_id}")
+                batch_id_map[subfolder_path] = batch_id
             except Exception as e:
                 logging.error(f"Failed to launch job for {mask_path(subfolder_path)}: {e}")
 
-    logging.info("Successfully launched all batch jobs.")
-    return batch_ids
+    logging.info("All batch jobs launched successfully.")
+    return batch_id_map
 
 
 #=============================================================================
@@ -201,7 +193,11 @@ def launch_all_batch_jobs_parallel(
 #=============================================================================
 
 @retry_on_transient_openai_errors
-def check_batch_status(client, batch_id, verbose=2):
+def check_batch_status(
+        client: openai.OpenAI | openai.AzureOpenAI,
+        batch_id: str,
+        verbose: int = 2
+    ):
     """
     Check the status of a batch job.
 
@@ -236,7 +232,11 @@ def check_batch_status(client, batch_id, verbose=2):
     return status
 
 
-def check_all_batch_status(client, batch_id_list, verbose=2):
+def check_multiple_batch_status(
+        client: openai.OpenAI | openai.AzureOpenAI,
+        batch_id_list: List[str],
+        verbose: int = 2
+     ):
     """
     Check the status of all batch jobs in the provided list.
 
@@ -284,7 +284,7 @@ def check_all_batch_status(client, batch_id_list, verbose=2):
         if failed_checks:
             logging.warning("Failed status checks:")
             for batch_id, error in failed_checks:
-                logging.warning(f" {batch_id}: {error}")
+                logging.warning(" %s: %s", batch_id, error)
 
     if verbose > 0:
         logging.info(f"Status checks complete: {len(statuses)} total, {len(failed_checks)} errors.")
@@ -292,7 +292,7 @@ def check_all_batch_status(client, batch_id_list, verbose=2):
     return statuses, summary
 
 
-def check_all_batch_status_parallel(
+def check_multiple_batch_status_parallel(
         client: openai.OpenAI | openai.AzureOpenAI,
         batch_id_list: List[str],
         max_workers: int = CHECK_MAX_WORKERS,
@@ -369,7 +369,13 @@ def check_all_batch_status_parallel(
 #==============================================================================
 
 @retry_on_transient_openai_errors
-def download_batch_result(client, batch_id, output_folder, return_summary_dict=False):
+def download_batch_result(
+        client: openai.OpenAI | openai.AzureOpenAI,
+        batch_id: str,
+        output_folder: str,
+        return_as: Literal['dict', 'print'] | None = None,
+        save_summary_dict: bool = False
+    ):
     """
     Download the results JSONL file of a completed batch job
     and save it as output.jsonl in the given folder.
@@ -378,9 +384,11 @@ def download_batch_result(client, batch_id, output_folder, return_summary_dict=F
         client: OpenAI API client.
         batch_id (str): The ID of the batch job.
         output_folder (str): The folder where output.jsonl will be saved.
+        return_as (str, optional): "dict", "print", or None. How to return summary.
+        save_dict (bool): Whether to save the summary as a dict file.
 
     Returns:
-        dict or None: Summary dictionary if return_summary_dict is True.
+        dict or str or None: Summary according to return_as.
 
     Raises:
         Exception: If the batch job has no output file.
@@ -415,17 +423,24 @@ def download_batch_result(client, batch_id, output_folder, return_summary_dict=F
     metadata_path = os.path.join(output_folder, "batch_metadata.json")
     save_batch_metadata(batch_metadata, metadata_path)
     summary_path = os.path.join(output_folder, "summary.txt")
-    summary_dict = save_batch_summary(
+    summary = save_batch_summary(
         batch_metadata,
         result_path,
         summary_path=summary_path,
-        return_dict=return_summary_dict
+        return_as=return_as,
+        save_dict=save_summary_dict
     )
 
-    return summary_dict if return_summary_dict else None
+    return summary
 
 
-def download_all_batch_results(client, batch_id_map, base_folder, return_summary_dict=False):
+def download_multiple_batch_results(
+        client: openai.OpenAI | openai.AzureOpenAI,
+        batch_id_map: dict[str, str],
+        base_folder: str,
+        return_as: Literal['dict', 'print'] | None = None,
+        save_summary_dict: bool = False
+    ):
     """
     Download the results JSONL files of all batch jobs into their corresponding subfolders.
 
@@ -433,6 +448,8 @@ def download_all_batch_results(client, batch_id_map, base_folder, return_summary
         client: OpenAI API client.
         batch_id_map (dict): Mapping from subfolder name to batch ID.
         base_folder (str): Path to the folder containing subfolders (where results will be saved).
+        return_as (str, optional): "dict", "print", or None. How to return summary.
+        save_summary_dict (bool): Whether to save the summary as a dict file.
     """
     logging.info(f"Downloading results for {len(batch_id_map)} jobs...")
 
@@ -440,21 +457,23 @@ def download_all_batch_results(client, batch_id_map, base_folder, return_summary
     failed_downloads = []
     for subfolder, batch_id in tqdm(batch_id_map.items(), desc="Downloading batch results"):
         try:
-            summary_dict = download_batch_result(
+            summary = download_batch_result(
                 client,
                 batch_id,
                 subfolder,
-                return_summary_dict=True
+                return_as='dict',
+                save_dict=save_summary_dict
             )
-            batch_summary_list.append(summary_dict)
+            batch_summary_list.append(summary)
         except Exception as e:
             failed_downloads.append((subfolder, batch_id, str(e)))
 
     summary_path = os.path.join(base_folder, "summary.txt")
-    summary_dict = save_general_summary(
+    general_summary = save_general_summary(
         batch_summary_list,
         summary_path=summary_path,
-        return_dict=return_summary_dict
+        return_as=return_as,
+        save_dict=save_summary_dict
     )
 
     logging.info(f"Downloads complete: {len(batch_summary_list)} successful, {len(failed_downloads)} failed.")
@@ -464,15 +483,16 @@ def download_all_batch_results(client, batch_id_map, base_folder, return_summary
         for subfolder, batch_id, error in failed_downloads:
             logging.warning(f"{mask_path(subfolder)} ({batch_id}): {error}")
 
-    return summary_dict if return_summary_dict else None
+    return general_summary
 
 
-def download_all_batch_results_parallel(
-        client,
-        batch_id_map,
-        base_folder,
-        max_workers=DOWNLOAD_MAX_WORKERS,
-        return_summary_dict=False
+def download_multiple_batch_results_parallel(
+        client: openai.OpenAI | openai.AzureOpenAI,
+        batch_id_map: dict[str, str],
+        base_folder: str,
+        max_workers: int = DOWNLOAD_MAX_WORKERS,
+        return_as: Literal['dict', 'print'] | None = None,
+        save_summary_dict: bool = False
     ):
     """
     Download all batch results in parallel.
@@ -482,10 +502,11 @@ def download_all_batch_results_parallel(
         batch_id_map (dict): Mapping from subfolder name to batch ID.
         base_folder (str): Base folder containing subfolders.
         max_workers (int): Maximum concurrent downloads.
-        return_summary_dict (bool): Whether to return summary dictionary.
+        return_as (str, optional): "dict", "print", or None. How to return summary.
+        save_summary_dict (bool): Whether to save the summary as a dict file.
 
     Returns:
-        dict or None: Summary dictionary if requested.
+        dict or str or None: Summary according to return_as.
     """
     logging.info(f"Downloading results for {len(batch_id_map)} jobs in parallel (max_workers={max_workers})...")
 
@@ -495,7 +516,14 @@ def download_all_batch_results_parallel(
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all download jobs
         future_to_info = {
-            executor.submit(download_batch_result, client, batch_id, subfolder, True): (subfolder, batch_id)
+            executor.submit(
+                download_batch_result,
+                client,
+                batch_id,
+                subfolder,
+                'dict',
+                save_summary_dict
+            ): (subfolder, batch_id)
             for subfolder, batch_id in batch_id_map.items()
         }
 
@@ -503,18 +531,19 @@ def download_all_batch_results_parallel(
         for future in as_completed(future_to_info):
             subfolder, batch_id = future_to_info[future]
             try:
-                summary_dict = future.result()
-                batch_summary_list.append(summary_dict)
+                summary = future.result()
+                batch_summary_list.append(summary)
                 logging.info(f"Downloaded results for {mask_path(subfolder)}")
             except Exception as e:
                 failed_downloads.append((subfolder, batch_id, str(e)))
 
     # Generate overall summary
     summary_path = os.path.join(base_folder, "summary.txt")
-    summary_dict = save_general_summary(
+    general_summary = save_general_summary(
         batch_summary_list,
         summary_path=summary_path,
-        return_dict=return_summary_dict
+        return_as=return_as,
+        save_dict=save_summary_dict
     )
 
     logging.info(f"Downloads complete: {len(batch_summary_list)} successful, {len(failed_downloads)} failed.")
@@ -524,7 +553,7 @@ def download_all_batch_results_parallel(
         for subfolder, batch_id, error in failed_downloads:
             logging.warning(f"{mask_path(subfolder)} ({batch_id}): {error}")
 
-    return summary_dict if return_summary_dict else None
+    return general_summary
 
 
 #==============================================================================
@@ -554,7 +583,7 @@ def track_and_download_batch(client, batch_id, output_folder, verbose=False):
         return 'pending', {}
 
 
-def track_and_download_all_batch_jobs_parallel_loop(
+def track_and_download_multiple_batch_jobs_parallel_loop(
         client: openai.OpenAI | openai.AzureOpenAI,
         batch_id_map: dict[str, str],
         base_folder: str,
@@ -683,7 +712,7 @@ def cancel_batch_job(client, batch_id):
     logging.info(f"Batch job {batch_id} cancelled.")
 
 
-def cancel_all_batch_jobs(client, batch_id_list):
+def cancel_multiple_batch_jobs(client, batch_id_list):
     """
     Cancel all batch jobs in the provided mapping.
 
