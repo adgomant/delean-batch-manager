@@ -75,6 +75,7 @@ def get_batch_summary_dict(batch_metadata: dict, output_file_path: str):
     finish_reason_total = finish_reason_counter.total()
 
     # Generate summary dictionary
+    subdomain_name = Path(output_file_path).parent.name
     summary = {
             "batch_id": batch_id,
             "model": model,
@@ -82,6 +83,7 @@ def get_batch_summary_dict(batch_metadata: dict, output_file_path: str):
             "created_at": created_at,
             "completed_at": completed_at,
             "duration": duration,
+            "subdomain": subdomain_name,
             "requests": {
                 "total": total,
                 "completed": completed,
@@ -116,7 +118,13 @@ def get_batch_summary_dict(batch_metadata: dict, output_file_path: str):
     return summary
 
 
-def save_batch_summary(batch_metadata: dict, output_file_path: str, summary_path: Optional[str] = None, return_dict: bool = True):
+def save_batch_summary(
+    batch_metadata: dict,
+    output_file_path: str,
+    summary_path: Optional[str] = None,
+    return_as: Optional[str] = None,
+    save_dict: bool = False
+):
     """
     Generate a summary text from batch metadata and output file.
 
@@ -124,15 +132,17 @@ def save_batch_summary(batch_metadata: dict, output_file_path: str, summary_path
         batch_metadata (dict): JSON content of the batch metadata.
         output_file_path (str): Path to the output.jsonl file.
         summary_path (str): Path to save the summary text. If None, saves in the same folder as output.jsonl.
-        return_dict (bool): If True, returns the summary as a dictionary.
+        return_as (str, optional): If 'dict', returns the summary as a dictionary; if 'print', prints the summary to console.
+        save_dict (bool): If True, saves the summary dictionary as a JSON file alongside the summary text.
 
     Returns:
-        str: The formatted summary text.
+        dict or None: The summary dictionary if return_as == 'dict', else None.
     """
     summary_dict = get_batch_summary_dict(batch_metadata, output_file_path)
 
     # Generate summary text
     summary_lines = [
+        f"Subdomain    : {summary_dict['subdomain']}",
         f"Batch ID     : {summary_dict['batch_id']}",
         f"Model        : {summary_dict['model']}",
         f"Status       : {summary_dict['status']}",
@@ -183,7 +193,18 @@ def save_batch_summary(batch_metadata: dict, output_file_path: str, summary_path
 
     logging.info(f"Batch summary saved to {mask_path(summary_path)}")
 
-    if return_dict:
+    # Save dict as JSON if requested
+    if save_dict:
+        json_path = Path(summary_path).with_suffix('.json')
+        with open(json_path, "w", encoding="utf-8") as jf:
+            json.dump(summary_dict, jf, indent=2, ensure_ascii=False)
+        logging.info(f"Batch summary dict saved to {mask_path(json_path)}")
+
+    # Print to console if requested
+    if return_as == 'print':
+        print(summary)
+
+    if return_as == 'dict':
         return summary_dict
 
 
@@ -316,13 +337,20 @@ def get_general_summary_dict(batch_summary_list: List[dict]) -> dict:
     return summary_dict
 
 
-def save_general_summary(batch_summary_list: List[dict], summary_path: str, return_dict: bool = False):
+def save_general_summary(
+    batch_summary_list: List[dict],
+    summary_path: str,
+    return_as: Optional[str] = None,
+    save_dict: bool = False
+):
     """
     Save a general summary file from a list of individual batch summaries.
 
     Args:
         batch_summary_list (List[dict]): List of summary dictionaries, one per batch.
         summary_path (str): Path to save the general summary text.
+        return_as (str, optional): If 'dict', returns the summary as a dictionary; if 'print', prints the summary to console.
+        save_dict (bool): If True, saves the summary dictionary as a JSON file alongside the summary text.
     """
     summary_dict = get_general_summary_dict(batch_summary_list)
 
@@ -367,5 +395,16 @@ def save_general_summary(batch_summary_list: List[dict], summary_path: str, retu
 
     logging.info(f"General summary saved to {mask_path(summary_path)}")
 
-    if return_dict:
+    # Save dict as JSON if requested
+    if save_dict:
+        json_path = Path(summary_path).with_suffix('.json')
+        with open(json_path, "w", encoding="utf-8") as jf:
+            json.dump(summary_dict, jf, indent=2, ensure_ascii=False)
+        logging.info(f"General summary dict saved to {mask_path(json_path)}")
+
+    # Print to console if requested
+    if return_as == 'print':
+        print("\n".join(summary_lines))
+
+    if return_as == 'dict':
         return summary_dict
