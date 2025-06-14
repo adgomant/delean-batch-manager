@@ -7,11 +7,8 @@ import logging
 from pathlib import Path
 
 from ..core.batching.pricing import get_batch_api_pricing
-from ..core.batching.files import (
-    create_subdomain_batch_input_files,
-    parse_subdomain_batch_output_files,
-    save_parsed_results
-)
+from ..core.batching.files import create_subdomain_batch_input_files
+from ..core.batching.parse import BatchOutputParser
 from ..core.batching.jobs import (
     launch_batch_job,
     launch_all_batch_jobs,
@@ -55,7 +52,7 @@ from .utils import (
     _handle_new_run_setup,
     _safe_get_subfolders,
     _safe_get_batch_id_map,
-    _get_demand_input_files,
+    _get_demand_files,
     _get_demand_subfolders_and_batch_ids,
     _get_launched_demands
 )
@@ -409,100 +406,6 @@ def create_input_files(ctx, demands):
 
 
 @cli.command()
-@click.option(
-    '--file-type', default='jsonl',
-    type=click.Choice(['jsonl', 'csv', 'parquet'], case_sensitive=False),
-    help='Type of parsed output file. Default is "jsonl".'
-)
-@click.option(
-    '--format', default='long',
-    type=click.Choice(['long', 'wide'], case_sensitive=False),
-    help=('Format of the CSV output file. "long" format will have one row per '
-          'annotation, while "wide" format will have one row per prompt '
-          'with all levels as columns. Note that "wide" will not include '
-          'finish reasons and completions, only levels, independently of the '
-          '--only-levels flag.')
-)
-@click.option(
-    '--only-levels', default=False, is_flag=True,
-    help=('If set, will only include the levels in the output file, excluding '
-          'finish reasons and completions.')
-)
-@click.option(
-    '--only-success', default=False, is_flag=True,
-    help=('If set, will only include the successful annotations in the output file. '
-          'Note that this is mutually exclusive with --only-failures.')
-)
-@click.option(
-    '--only-failed', default=False, is_flag=True,
-    help=('If set, will only include the failed annotations in the output file.'
-          'Note that this is mutually exclusive with --only-success.')
-)
-@click.option(
-    '--split-by-demand', default=False, is_flag=True,
-    help=('If set, will create separate output files for each demand. ')
-)
-@click.option(
-    '--finish-reason', default=None,
-    type=click.Choice(['stop', 'length', 'other'], case_sensitive=False),
-    help=('Filter results by finish reason. '
-          'If specified, only annotations with the specified finish reason will be included. '
-          'If not specified, all finish reasons will be included.')
-)
-@click.option(
-    '--include-prompts', default=False, is_flag=True,
-    help=('If set, will include the original prompts in the output file. ')
-)
-@click.option(
-    '--verbose', is_flag=True, default=True,
-    help=('If set, logs warnings for any issues encountered when extracting '
-          'demand levels at instance level.')
-)
-@click.pass_context
-def parse_output_files(ctx, file_type, only_levels, csv_format, verbose):
-    """
-    Parse output JSONL files from OpenAI Batch Jobs. Creates a single JSONL
-    or CSV file with all annotations.
-    """
-    base_folder = ctx.obj['base_folder']
-    annotations_path = ctx.obj['annotations_folder']
-    run_name = ctx.obj['run_name']
-
-    logging.info("Parsing batch output files...")
-    try:
-        results = parse_subdomain_batch_output_files(
-            base_folder=base_folder,
-            only_levels=only_levels,
-            verbose=verbose
-        )
-    except Exception as e:
-        logging.error(f"Error parsing output files: {e}")
-        raise SystemExit(1)
-
-    output_path = f"{annotations_path}/{run_name}_annotations"
-    if file_type == 'csv':
-        output_path += f"_{csv_format}"
-        if only_levels and csv_format == 'long':
-            output_path += "_only_levels"
-    else:
-        if only_levels:
-            output_path += "_only_levels"
-    output_path += f".{file_type}"
-
-    logging.info(f"Saving parsed results to {output_path}")
-    try:
-        save_parsed_results(
-            results=results,
-            output_path=output_path,
-            file_type=file_type,
-            csv_format=csv_format,
-        )
-    except Exception as e:
-        logging.error(f"Error saving parsed results: {e}")
-        raise SystemExit(1)
-
-
-@cli.command()
 @click.argument('demands', nargs=-1)
 @click.option(
     '--parallel', default=False, is_flag=True,
@@ -532,12 +435,17 @@ def launch(ctx, demands, parallel):
     all_subfolders = _safe_get_subfolders(base_folder)
 
     if demands:
-        input_files, failed = _get_demand_input_files(demands, all_subfolders)
+        input_files, failed = _get_demand_files(
+            demands, all_subfolders, which='input'
+        )
         if failed:
-            logging.error("Cannot launch any job because of demands: "
-                          f"{failed}. Please ensure the input files are "
-                          "created for these demands or check if names "
-                          "are correct.")
+            msg = (
+                "Cannot launch any job because of demands: "
+                f"{failed}. Please ensure the input files are "
+                "created for these demands or check if names "
+                "are correct."
+            )
+            logging.error(msg)
             raise SystemExit(1)
 
         for input_file in input_files:
@@ -557,7 +465,7 @@ def launch(ctx, demands, parallel):
 
     batch_id_map_file = os.path.join(base_folder, "batch_id_map.json")
     save_batch_id_map_to_file(ctx.obj['subfolder2id'], batch_id_map_file)
-    logging.info(f"Batch ID map correctly saved")
+    logging.info("Batch ID map correctly saved")
 
 
 @cli.command()
@@ -597,10 +505,13 @@ def check(ctx, demands, parallel):
             demands, all_subfolders, batch_id_map
         )
         if failed:
-            logging.error("Cannot check status for any job because of "
-                          f"demands: {failed}. Please ensure the jobs "
-                          "are launched or check if names are correct. "
-                          f"Current demand jobs launched: {demands_launched}")
+            msg = (
+                "Cannot check status for any job because of demands: "
+                f"{failed}. Please ensure the jobs are launched or "
+                "check if names are correct. "
+                f"Current demand jobs launched: {demands_launched}"
+            )
+            logging.error(msg)
             raise SystemExit(1)
 
         for subfolder, batch_id in zip(subfolders, batch_ids):
@@ -656,10 +567,13 @@ def download(ctx, demands, parallel):
             demands, all_subfolders, batch_id_map
         )
         if failed:
-            logging.error("Cannot download any result because of demands: "
-                          f"{failed}. Please ensure the jobs are launched or "
-                          "check if names are correct. Current demand jobs "
-                          f"launched: {demands_launched}")
+            msg = (
+                "Cannot download any result because of demands: "
+                f"{failed}. Please ensure the jobs are launched or "
+                "check if names are correct. "
+                f"Current demand jobs launched: {demands_launched}"
+            )
+            logging.error(msg)
             raise SystemExit(1)
 
         for subfolder, batch_id in zip(subfolders, batch_ids):
@@ -670,6 +584,146 @@ def download(ctx, demands, parallel):
             download_all_batch_results_parallel(client, batch_id_map, base_folder)
         else:
             download_all_batch_results(client, batch_id_map, base_folder)
+
+
+@cli.command()
+@click.argument('demands', nargs=-1)
+@click.option(
+    '--file-type', default='jsonl',
+    type=click.Choice(['jsonl', 'csv', 'parquet'], case_sensitive=False),
+    help='Type of parsed output file. Default is "jsonl".'
+)
+@click.option(
+    '--format', default='long',
+    type=click.Choice(['long', 'wide'], case_sensitive=False),
+    help=('Format of the output file: "long" (one row per annotation) '
+          'or "wide" (one row per prompt).')
+)
+@click.option(
+    '--only-levels', is_flag=True, default=False,
+    help=('Only include levels in the output, excluding finish reason '
+          'and model response.')
+)
+@click.option(
+    '--only-success', is_flag=True, default=False,
+    help=('Only include successful annotations in the output.'
+          'Note that this is mutually exclusive with --only-failed.')
+)
+@click.option(
+    '--only-failed', is_flag=True, default=False,
+    help=('Only include failed annotations in the output.'
+          'Note that this is mutually exclusive with --only-success.')
+)
+@click.option(
+    '--split-by-demand', is_flag=True, default=False,
+    help=('Split output files by demand. Note that this is only '
+          'applicable for long format. ')
+)
+@click.option(
+    '--finish-reason', default=None,
+    type=click.Choice(['stop', 'length', 'other'], case_sensitive=False),
+    help=('Filter annotations by finish reason. If not provided, '
+          'all finish reasons will be included. ')
+)
+@click.option(
+    '--include-prompts', is_flag=True, default=False, 
+    help='Include original prompts in the output file. '
+)
+@click.option(
+    '--verbose', is_flag=True, default=True,
+    help=('logs warnings for any issues encountered when '
+          'extracting demand levels.')
+)
+@click.pass_context
+def parse_output_files(
+    ctx, demands, file_type, format, only_levels, only_success, 
+    only_failed, split_by_demand, finish_reason, include_prompts, verbose
+    ):
+    """
+    Parse output JSONL files from OpenAI Batch Jobs and save the parsed
+    annotations to JSONL, CSV or Parquet format.
+
+    \b
+    DEMANDS:
+      Demand(s) batch output files to parse separated by spaces.
+      If not provided, all output files available in base folder will be parsed.
+      Batch output files must be created first using the 'download' command.
+      Note that demands should match the subfolder names in the base folder.
+      In case of multiple parts per demand you can either provide the full name
+      (e.g., "KNs_part1") to launch that specific part, or just the demand name
+      (e.g., "KNs") to launch all parts related to that demand.
+    """
+    base_folder = ctx.obj['base_folder']
+    annotations_folder = ctx.obj['annotations_folder']
+    run_name = ctx.obj['run_name']
+
+    if only_success and only_failed:
+        raise click.UsageError("Cannot use --only-success and --only-failed "
+                               "together. Please choose one or any of them.")
+
+    # Load prompts if needed
+    source_prompts = None
+    if include_prompts:
+        try:
+            source_prompts = read_source_data(
+                ctx.obj['source_data_file'], as_map=True
+            )
+        except Exception as e:
+            logging.warning(f"Could not load source prompts from {prompts_path}: {e}")
+
+    # Build parser with args
+    parser = BatchOutputParser(
+        format=format,
+        only_levels=only_levels,
+        only_succeed=only_success,
+        only_failed=only_failed,
+        finish_reason=finish_reason,
+        source_prompts=source_prompts,
+        verbose=verbose
+    )
+
+    # Get all demands subfolders,
+    # exits if no subfolders found with valid input files in.
+    all_subfolders = _safe_get_subfolders(base_folder)
+
+    if demands:
+        output_files, failed = _get_demand_files(
+            demands, all_subfolders, which='output'
+        )
+        if failed:
+            msg = (
+                "Cannot parse any output file because of demands: "
+                f"{failed}. Please ensure the output files are "
+                "downloaded for these demands or check if names "
+                "are correct."
+            )
+            logging.error(msg)
+            raise SystemExit(1)
+
+    else:
+        output_files = Path(base_folder).rglob("output.jsonl")
+
+    parser.parse(output_files)
+    parser.summary()
+
+    # Write results
+    try:
+        write_kwargs = {
+            'path': annotations_folder,
+            'prefix': run_name,
+            'split_by_demand': split_by_demand
+        }
+        match file_type:
+            case 'jsonl':
+                parser.write_json(**write_kwargs)
+            case 'csv':
+                parser.write_csv(**write_kwargs)
+            case 'parquet':
+                parser.write_parquet(**write_kwargs)
+        logging.info("Parsed results successfully written.")
+    except Exception as e:
+        logging.error(f"Error saving parsed results: {e}")
+        raise SystemExit(1)
 
 
 @cli.command()
@@ -708,10 +762,13 @@ def cancel(ctx, demands):
             demands, all_subfolders, batch_id_map
         )
         if failed:
-            logging.error("Cannot cancel any job because of demands: "
-                          f"{failed}. Please ensure the jobs are launched "
-                          "or check if names are correct. Current demand "
-                          f"jobs launched: {demands_launched}")
+            msg = (
+                "Cannot cancel any job because of demands: "
+                f"{failed}. Please ensure the jobs are launched or "
+                "check if names are correct. "
+                f"Current demand jobs launched: {demands_launched}"
+            )
+            logging.error(msg)
             raise SystemExit(1)
 
         for subfolder, batch_id in zip(subfolders, batch_ids):
