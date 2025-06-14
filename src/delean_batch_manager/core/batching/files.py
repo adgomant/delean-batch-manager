@@ -77,7 +77,7 @@ def create_subdomain_batch_input_files(
         os.makedirs(subdomain_dir, exist_ok=True)
         output_file = os.path.join(subdomain_dir, 'input.jsonl')
 
-        with open(output_file, 'w') as f:
+        with open(output_file, 'w', encoding='utf-8') as f:
             for row in prompt_data:
                 # Combine rubric with base prompt and any row-specific content
                 prompt = row['prompt']

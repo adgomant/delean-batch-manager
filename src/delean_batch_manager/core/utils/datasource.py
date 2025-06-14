@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 
-import json
 import polars as pl
+
+from .misc import read_jsonl
 
 
 def check_jsonl_source_data_keys(source_data_file):
     """Check if each object inside JSONL file has the required keys 'prompt' and 'custom_id'."""
+    lines = read_jsonl(source_data_file)
     wrong_keys = {}
-    with open(source_data_file, 'r') as f:
-        for i, line in enumerate(f):
-            item = json.loads(line)
-            if 'prompt' not in item or 'custom_id' not in item:
-                wrong_keys[i] = list(item.keys())
+    for i, item in enumerate(lines):
+        if 'prompt' not in item or 'custom_id' not in item:
+            wrong_keys[i] = list(item.keys())
     if wrong_keys:
         return False, wrong_keys
     return True, None
@@ -30,10 +30,9 @@ def check_tabular_source_data_columns(source_data_file):
     return True
 
 
-def read_source_data_jsonl(source_data_file):
+def read_source_data_jsonl(source_data_file, as_map=False):
     """Read source data from a JSONL file."""
-    with open(source_data_file, 'r') as f:
-        lines = [json.loads(line) for line in f]
+    lines = read_jsonl(source_data_file)
     data = []
     for i, item in enumerate(lines):
         if 'prompt' not in item or 'custom_id' not in item:
@@ -42,10 +41,14 @@ def read_source_data_jsonl(source_data_file):
             'prompt': item['prompt'],
             'custom_id': item['custom_id']
         })
+
+    if as_map:
+        data = {item['custom_id']: item['prompt'] for item in data}
+
     return data
 
 
-def read_source_data_tabular(source_data_file):
+def read_source_data_tabular(source_data_file,  as_map=False):
     """Read source data from a CSV or PARQUET file."""
     if source_data_file.endswith(".csv"):
         df = pl.read_csv(source_data_file)
@@ -53,34 +56,37 @@ def read_source_data_tabular(source_data_file):
         df = pl.read_parquet(source_data_file)
     else:
         raise ValueError('Source data file must be either CSV or PARQUET')
+
     if 'prompt' not in df.columns or 'custom_id' not in df.columns:
         raise KeyError(f"Expected 'prompt' and 'custom_id' columns not found in {source_data_file}.")
+
     df = df.select(['prompt', 'custom_id'])
-    df = df.to_dicts()
-    return df
+    data = df.to_dicts()
+
+    if as_map:
+        data = {item['custom_id']: item['prompt'] for item in data}
+
+    return data
 
 
-def read_source_data(source_data_file):
+def read_source_data(source_data_file, as_map=False):
     """Read source data from a JSONL, CSV or PARQUET file."""
     if source_data_file.endswith('.jsonl'):
-        return read_source_data_jsonl(source_data_file)
+        return read_source_data_jsonl(source_data_file, as_map=as_map)
     elif source_data_file.endswith('.csv') or source_data_file.endswith('.parquet'):
-        return read_source_data_tabular(source_data_file)
+        return read_source_data_tabular(source_data_file, as_map=as_map)
     else:
         raise ValueError("Source data file must be a JSONL, CSV or PARQUET file.")
 
 
 def read_only_prompts_from_source_data_jsonl(source_data_file):
     """Read only prompts from a JSONL source data file."""
+    lines = read_jsonl(source_data_file)
     prompts = []
-    with open(source_data_file, 'r') as f:
-        for i, line in enumerate(f):
-            item = json.loads(line)
-            prompt = item.get('prompt')
-            if prompt is not None:
-                prompts.append(item['prompt'])
-            else:
-                raise KeyError(f"Missing 'prompt' in line {i}")
+    for i, item in enumerate(lines):
+        if 'prompt' not in item:
+            raise KeyError(f"Expected 'prompt' key not found in line {i} of {source_data_file}.")
+        prompts.append(item['prompt'])
     return prompts
 
 
@@ -90,6 +96,8 @@ def read_only_prompts_from_source_data_tabular(source_data_file):
         df = pl.read_csv(source_data_file)
     elif source_data_file.endswith('.parquet'):
         df = pl.read_parquet(source_data_file)
+    else:
+        raise ValueError("Source data file must be a CSV or PARQUET file.")
     return df['prompt'].to_list()
 
 
