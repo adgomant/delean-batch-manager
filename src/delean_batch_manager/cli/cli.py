@@ -10,19 +10,17 @@ from ..core.batching.pricing import get_batch_api_pricing
 from ..core.batching.files import create_subdomain_batch_input_files
 from ..core.batching.parse import BatchOutputParser
 from ..core.batching.jobs import (
-    launch_batch_job,
-    launch_all_batch_jobs,
-    launch_all_batch_jobs_parallel,
+    launch_multiple_batch_jobs,
+    launch_multiple_batch_jobs_parallel,
     check_batch_status,
-    check_all_batch_status,
-    check_all_batch_status_parallel,
+    check_multiple_batch_status,
+    check_multiple_batch_status_parallel,
     download_batch_result,
-    download_all_batch_results,
-    download_all_batch_results_parallel,
-    track_and_download_all_batch_jobs_parallel_loop,
+    download_multiple_batch_results,
+    download_multiple_batch_results_parallel,
+    track_and_download_multiple_batch_jobs_parallel_loop,
     list_batch_jobs,
-    cancel_batch_job,
-    cancel_all_batch_jobs
+    cancel_multiple_batch_jobs
 )
 from ..core.batching.utils import (
     save_batch_id_map_to_file,
@@ -187,7 +185,7 @@ def cli(ctx, verbose, quiet, run_name):
           'For new runs, default is 1000.')
 )
 @click.option(
-    '--azure/--no-azure', default=False,
+    '--azure/--no-azure', default=None,
     help=('Use Azure OpenAI API instead of OpenAI API. '
           'For new runs, default is --no-azure.')
 )
@@ -230,6 +228,10 @@ def setup(ctx, source_data_file, rubrics_folder, base_folder,
     existing_config = registry.get_run_config(run_name)
 
     if existing_config:
+        existing_api = existing_config.get('API')
+        setup_api = 'AzureOpenAI' if azure else 'OpenAI'
+        if existing_api == 'AzureOpenAI' and not azure:
+            azure = None
         return _handle_existing_run_setup(
             run_name, existing_config, source_data_file,
             rubrics_folder, base_folder, annotations_folder,
@@ -447,21 +449,17 @@ def launch(ctx, demands, parallel):
             )
             logging.error(msg)
             raise SystemExit(1)
-
-        for input_file in input_files:
-            subfolder = input_file.parent
-            batch_id = launch_batch_job(client, input_file, endpoint)
-            ctx.obj['subfolder2id'][str(subfolder)] = batch_id
-
     else:
-        if parallel:
-            ctx.obj['subfolder2id'] = launch_all_batch_jobs_parallel(
-                client, base_folder, endpoint
-            )
-        else:
-            ctx.obj['subfolder2id'] = launch_all_batch_jobs(
-                client, base_folder, endpoint
-            )
+        input_files = list(Path(base_folder).rglob("input.jsonl"))
+
+    launch_func = (
+        launch_multiple_batch_jobs_parallel if parallel
+        else launch_multiple_batch_jobs
+    )
+
+    ctx.obj['subfolder2id'] = launch_func(
+        client, input_files, endpoint
+    )
 
     batch_id_map_file = os.path.join(base_folder, "batch_id_map.json")
     save_batch_id_map_to_file(ctx.obj['subfolder2id'], batch_id_map_file)
@@ -513,16 +511,18 @@ def check(ctx, demands, parallel):
             )
             logging.error(msg)
             raise SystemExit(1)
-
-        for subfolder, batch_id in zip(subfolders, batch_ids):
-            check_batch_status(client, batch_id, verbose=2)
-
+    
     else:
-        batch_id_list = list(batch_id_map.values())
-        if parallel:
-            check_all_batch_status_parallel(client, batch_id_list, verbose=2)
-        else:
-            check_all_batch_status(client, batch_id_list, verbose=2)
+        batch_ids = list(batch_id_map.values())
+
+    if len(batch_ids) == 1:
+        check_batch_status(client, batch_ids[0], verbose=2)
+    else:
+        check_func = (
+            check_multiple_batch_status_parallel if parallel
+            else check_multiple_batch_status
+        )
+        check_func(client, batch_ids, verbose=2)
 
 
 @cli.command()
@@ -532,8 +532,13 @@ def check(ctx, demands, parallel):
     help=('Use parallel processing (recommended for multiple dense jobs with '
           + 'large files to be downloaded).')
 )
+@click.option(
+    '--save-summary-dict', is_flag=True, default=False,
+    help=('Save summaries as dictionary apart from text. '
+          'Useful for further processing or analysis.')
+)
 @click.pass_context
-def download(ctx, demands, parallel):
+def download(ctx, demands, parallel, save_summary_dict):
     """
     Download results of OpenAI Batch Jobs.
 
@@ -576,14 +581,23 @@ def download(ctx, demands, parallel):
             logging.error(msg)
             raise SystemExit(1)
 
-        for subfolder, batch_id in zip(subfolders, batch_ids):
-            download_batch_result(client, batch_id, subfolder)
+        batch_id_map = dict(zip(subfolders, batch_ids))
 
+    if len(batch_id_map) == 1:
+        subfolder, batch_id = next(iter(batch_id_map.items()))
+        download_batch_result(
+            client, batch_id, subfolder, return_as='print',
+            save_summary_dict=save_summary_dict
+        )
     else:
-        if parallel:
-            download_all_batch_results_parallel(client, batch_id_map, base_folder)
-        else:
-            download_all_batch_results(client, batch_id_map, base_folder)
+        download_func = (
+            download_multiple_batch_results_parallel if parallel
+            else download_multiple_batch_results
+        )
+        download_func(
+            client, batch_id_map, base_folder, return_as='print',
+            save_summary_dict=save_summary_dict
+        )
 
 
 @cli.command()
@@ -605,7 +619,7 @@ def download(ctx, demands, parallel):
           'and model response.')
 )
 @click.option(
-    '--only-success', is_flag=True, default=False,
+    '--only-succeed', is_flag=True, default=False,
     help=('Only include successful annotations in the output.'
           'Note that this is mutually exclusive with --only-failed.')
 )
@@ -630,13 +644,13 @@ def download(ctx, demands, parallel):
     help='Include original prompts in the output file. '
 )
 @click.option(
-    '--verbose', is_flag=True, default=True,
+    '--verbose', is_flag=True, default=False,
     help=('logs warnings for any issues encountered when '
           'extracting demand levels.')
 )
 @click.pass_context
 def parse_output_files(
-    ctx, demands, file_type, format, only_levels, only_success, 
+    ctx, demands, file_type, format, only_levels, only_succeed, 
     only_failed, split_by_demand, finish_reason, include_prompts, verbose
     ):
     """
@@ -657,7 +671,7 @@ def parse_output_files(
     annotations_folder = ctx.obj['annotations_folder']
     run_name = ctx.obj['run_name']
 
-    if only_success and only_failed:
+    if only_succeed and only_failed:
         raise click.UsageError("Cannot use --only-success and --only-failed "
                                "together. Please choose one or any of them.")
 
@@ -669,13 +683,13 @@ def parse_output_files(
                 ctx.obj['source_data_file'], as_map=True
             )
         except Exception as e:
-            logging.warning(f"Could not load source prompts from {prompts_path}: {e}")
+            logging.warning(f"Could not load source prompts from {ctx.obj['source_data_file']}: {e}")
 
     # Build parser with args
     parser = BatchOutputParser(
         format=format,
         only_levels=only_levels,
-        only_succeed=only_success,
+        only_succeed=only_succeed,
         only_failed=only_failed,
         finish_reason=finish_reason,
         source_prompts=source_prompts,
@@ -701,7 +715,7 @@ def parse_output_files(
             raise SystemExit(1)
 
     else:
-        output_files = Path(base_folder).rglob("output.jsonl")
+        output_files = list(Path(base_folder).rglob("output.jsonl"))
 
     parser.parse(output_files)
     parser.summary()
@@ -771,13 +785,13 @@ def cancel(ctx, demands):
             logging.error(msg)
             raise SystemExit(1)
 
-        for subfolder, batch_id in zip(subfolders, batch_ids):
-            cancel_batch_job(client, batch_id)
-            del ctx.obj['subfolder2id'][subfolder]
-
     else:
-        cancel_all_batch_jobs(client, batch_id_map.values())
-        ctx.obj['subfolder2id'] = {}
+        subfolders = list(batch_id_map.keys())
+        batch_ids = list(batch_id_map.values())
+
+    cancel_multiple_batch_jobs(client, batch_ids)
+    for subf in subfolders:
+        del ctx.obj['subfolder2id'][subf]
 
     # Update batch ID map file
     batch_id_map_file = os.path.join(base_folder, "batch_id_map.json")
@@ -806,7 +820,7 @@ def track_and_download_loop(ctx, check_interval, n_jobs):
     batch_id_map = ctx.obj['subfolder2id']
     max_workers = resolve_n_jobs(n_jobs)
 
-    track_and_download_all_batch_jobs_parallel_loop(
+    track_and_download_multiple_batch_jobs_parallel_loop(
         client=client,
         batch_id_map=batch_id_map,
         base_folder=base_folder,
