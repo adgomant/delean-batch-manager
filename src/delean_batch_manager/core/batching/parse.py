@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 
+import re
 import json
 import logging
+import numpy as np
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -111,7 +113,7 @@ class BatchOutputParser:
         df = pl.DataFrame(self._results)
         if self.args.format == 'wide':
             df = df.pivot(on='demand', index='custom_id', values='level')
-            df.fill_null(float('nan'))
+            df = df.fill_null(np.nan)
         return df
 
     def _validate_path(self, path: str | Path):
@@ -175,20 +177,20 @@ class BatchOutputParser:
                     prefix=prefix,
                     extension=file_type
                 )
-                path /= filename
+                save_path = path / filename
                 match file_type:
                     case 'jsonl':
-                        write_jsonl(sub_results, path)
+                        write_jsonl(sub_results, save_path)
                     case 'csv':
-                        sub_results.write_csv(path)
+                        sub_results.write_csv(save_path)
                     case 'parquet':
-                        sub_results.write_parquet(path)
+                        sub_results.write_parquet(save_path)
         else:
             if path.is_dir():
                 if len(self._output_files) == 1:
-                    base_name = 'annotations'
-                else:
                     base_name = 'annotations_' + Path(self._output_files[0]).parent.name
+                else:
+                    base_name = 'annotations'
                 filename = self._get_default_filename(
                     base_name=base_name,
                     prefix=prefix,
@@ -287,7 +289,7 @@ class BatchOutputParser:
             raise ValueError("No results to write. Please parse the output files first.")
 
         total = len(self._results)
-        failed_items = [r for r in self._results if pl.is_nan(r['level'])]
+        failed_items = [r for r in self._results if np.isnan(r['level'])]
         failed = len(failed_items)
         success = total - failed
 
@@ -328,6 +330,7 @@ class BatchOutputParser:
         if 'finish_reasons' in failed_with_breakdown:
             for k, v in failed_with_breakdown['finish_reasons'].items():
                 print(f"    - {k}: {v['count']} ({v['percent']}%)")
+        print()
 
 
 def parse_subdomain_output_files(output_files, **kwargs) -> list:
@@ -416,7 +419,6 @@ def _parse_subdomain_output_file_as_long_jsonl(
 
     with open(output_file, 'r', encoding='utf-8') as f:
         data = [json.loads(line) for line in f]
-
     for item in data:
         custom_id = item['custom_id']
 
@@ -428,10 +430,10 @@ def _parse_subdomain_output_file_as_long_jsonl(
                 (finish not in ['stop', 'length'] and finish_reason != 'other')
             ):
                 continue
-
         response = item['response']['body']['choices'][0]['message']['content']
-        if finish_reason == 'stop':
+        if finish == 'stop':
             demand_level, ok = extract_demand_level_from_response(response)
+            #print(demand_level, ok)
             if not ok:
                 if verbose:
                     msg = (
@@ -440,12 +442,12 @@ def _parse_subdomain_output_file_as_long_jsonl(
                         f"Response content: {repr(response)}"
                     )
                     logging.warning(msg)
-                demand_level = float('nan')
+                demand_level = np.nan
                 failed = True
             else:
                 failed = False
         else:
-            demand_level = float('nan')
+            demand_level = np.nan
             failed = True
         if (only_succeed and failed) or (only_failed and not failed):
             continue
@@ -469,6 +471,35 @@ def _parse_subdomain_output_file_as_long_jsonl(
     return results
 
 
+def extract_demand_level_from_response(response: str) -> float:
+    """
+    Extract the demand level from the response string.
+
+    Args:
+        response (str): The ressponse string from which to extract the demand level.
+
+    Returns:
+        float: The extracted demand level, or NaN if extraction fails.
+    """
+    *cot_steps, conclusion = response.split('\n\n')
+    try:
+        # Extract the last number from the conclusion
+        match = re.findall(r'\d+', conclusion)
+        demand_level = float(match[-1])
+        if demand_level < 0 or demand_level > 5:
+            # If the demand level is outside the expected range, 
+            # result is considered invalid
+            return float('nan'), False
+        if len(match) == 1 and conclusion.startswith(str(demand_level)):
+            # Avoid cases where the only number present in the final statement 
+            # is a leading section number (yes, this could happen)
+            # e.g., "4. Conclusion: Thus, the level of Attention and Search 
+            # demanded by the given TASK INSTANCE is: **Not Applicable**"
+            return float('nan'), False
+        return demand_level, True
+    except IndexError:
+        return float('nan'), False
+
 def _long_to_wide_jsonl(results: list[dict]) -> list[dict]:
     """
     Convert a list of annotations in long format to wide format.
@@ -480,7 +511,7 @@ def _long_to_wide_jsonl(results: list[dict]) -> list[dict]:
         subdomain = item['demand']
         level = item['level']
 
-        results_wide[custom_id]['demands'][subdomain] = {
+        results_wide[custom_id]['demand'][subdomain] = {
             'level': level
         }
 
@@ -554,13 +585,13 @@ def _get_default_annotations_file_name(
         parts.append(prefix)
     parts.append(base_name)
     if finish_reason:
-        parts.append(f'_{finish_reason}')
+        parts.append(f'{finish_reason}')
     if only_succeed:
-        parts.append('_succeed')
+        parts.append('succeed')
     if only_failed:
-        parts.append('_failed')
+        parts.append('failed')
     if only_levels:
-        parts.append('_only_levels')
-    parts.append(f'_{format}')
+        parts.append('only_levels')
+    parts.append(f'{format}')
     filename = '_'.join(parts) + f'.{extension}'
     return filename
