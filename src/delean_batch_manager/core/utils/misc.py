@@ -1,9 +1,42 @@
 # -*- coding: utf-8 -*-
 
 import os
+import json
 import logging
-import re
 from pathlib import Path
+
+
+#=======================================================================
+# JSON Lines Utilities
+#=======================================================================
+
+def write_jsonl(lines, path):
+    """
+    Write a list of dictionaries to a JSON Lines file.
+    Each dictionary is written as a separate line in the file.
+
+    Args:
+        lines (list): List of dictionaries to write.
+        path (str): Path to the output file.
+    """
+    with open(path, 'w', encoding='utf-8') as f:
+        for line in lines:
+            f.write(json.dumps(line) + '\n')
+    return
+
+
+def read_jsonl(path):
+    """
+    Read a JSON Lines file and return a list of dictionaries.
+
+    Args:
+        path (str): Path to the input file.
+
+    Returns:
+        list: List of dictionaries read from the file.
+    """
+    with open(path, 'r', encoding='utf-8') as f:
+        return [json.loads(line) for line in f]
 
 
 #=======================================================================
