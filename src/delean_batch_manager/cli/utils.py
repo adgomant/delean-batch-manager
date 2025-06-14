@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 import click
 import yaml
+from typing import Literal
 
 from ..core.utils.registry import get_registry
 from ..core.utils.datasource import (
@@ -443,12 +444,13 @@ def _safe_get_subfolders(base_folder: str | Path) -> list[Path]:
     return subfolders
 
 
-def _get_demand_input_files(
+def _get_demand_files(
         demands: list,
-        all_subfolders: list[Path]
+        all_subfolders: list[Path],
+        which: Literal['input', 'output'] = 'input'
     ) -> tuple[list[Path], list[str]]:
     """Get the subfolders for given demands."""
-    infiles = []
+    files = []
     failed = []
     for demand in demands:
         demand_subfolders = [
@@ -458,12 +460,12 @@ def _get_demand_input_files(
         if not demand_subfolders:
             failed.append(demand)
         for subfolder in demand_subfolders:
-            input_file = subfolder / "input.jsonl"
+            input_file = subfolder / f"{which}.jsonl"
             if input_file.exists():
-                infiles.append(input_file)
+                files.append(input_file)
             else:
                 failed.append(demand)
-    return infiles, failed
+    return files, failed
 
 
 def _safe_get_batch_id_map(ctx) -> dict:
