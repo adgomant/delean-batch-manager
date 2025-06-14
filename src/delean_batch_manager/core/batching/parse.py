@@ -400,6 +400,7 @@ def parse_subdomain_output_files(output_files, **kwargs) -> list:
 
     return results
 
+
 def _parse_subdomain_output_file_as_long_jsonl(
         output_file: str | Path,
         only_levels: bool = False,
@@ -499,6 +500,7 @@ def extract_demand_level_from_response(response: str) -> float:
         return demand_level, True
     except IndexError:
         return float('nan'), False
+
 
 def _long_to_wide_jsonl(results: list[dict]) -> list[dict]:
     """
