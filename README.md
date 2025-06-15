@@ -172,7 +172,7 @@ This project is licensed under the Apache 2.0 License.
 **Authors:**
 
 * Álvaro David Gómez Antón
-* Lexin Zhou
+* Kinds of Intelligence Team at CFI
 
 ---
 
