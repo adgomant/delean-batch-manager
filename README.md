@@ -107,12 +107,12 @@ annotations = manager.parse_output_files(return_as="df", format="wide")
 # if you also want to save them
 annotations = manager.parse_output_files(
     return_as="df", format="wide", 
-    output_path="./data/annotations/", 
+    output_path="./data/annotations/",  # explicitly saves the parsed results
     file_type="csv"
 )
 ```
 
-Check the `examples/` or `notebooks/` folders for more detailed examples.
+Check the [**`examples/`**](https://github.com/adgomant/delean-batch-manager/tree/master/examples) folder for more detailed examples.
 
 ---
 
@@ -120,7 +120,7 @@ Check the `examples/` or `notebooks/` folders for more detailed examples.
 
 * `src/`: Source code for the package
 * `rubrics/`: Default rubric battery (DeLeAn v1.0)
-* `examples/` & `notebooks/`: Practical usage examples and notebooks (to be added)
+* `examples/`: Practical usage examples and notebooks (to be added)
 * `docs/`: Documentation resources (to be added)
 * `tests/`: Test suite (to be implemented)
 
@@ -136,7 +136,7 @@ You can easily define your own rubrics:
 Example:
 
 ```
-New Demand Level
+# New Demand Level
 This demand level corresponds to...
 
 0: Level description.
@@ -147,6 +147,8 @@ Examples:
 1: Another level description.
 ...
 ```
+
+> Note that this is a simple example and the real content should be much more detailed. You can get inspiration from the provided rubrics on how to define them.
 
 Place your rubric file in your rubrics directory and it will be automatically available for annotation.
 For consistency with the framework, you should define the rubric to describe, at least, from levels 0 to 5 of the new Demand Level and include some examples for each of them.
