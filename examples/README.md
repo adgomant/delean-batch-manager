@@ -257,7 +257,8 @@ This command supports a wide range of output configurations to adapt to differen
     > - `stop`: the model ended naturally (usually good)
     > - `length`: the model was cut off due to reaching `max_completion_tokens`
     > - `other`: rare cases, e.g., safety filters or unexpected failures
-    >
+    > \
+    > \
     > These can affect extraction reliability. It's often useful to treat `length` failures separately to distinguish between *“model didn’t know”* and *“model ran out of room.”*
 
 - Include or exclude additional metadata such as the full model response, finish reason, or original prompt
