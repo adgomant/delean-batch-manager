@@ -16,10 +16,10 @@ readme = "README.md"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Alvaro David Gomez Anton"},
-    {name = "Lexin Zhou"}
+    {name = "Kinds of Intelligence Team at CFI"}
 ]
 maintainers = [
-    {name = "Alvaro David Gomez Anton"}
+    {name = "Alvaro David Gomez Anton", email = "alvarog.datasc@gmail.com"}
 ]
 keywords = [
     "openai",
