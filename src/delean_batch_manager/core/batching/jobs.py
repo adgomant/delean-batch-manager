@@ -121,7 +121,6 @@ def launch_multiple_batch_jobs(
     for input_file in tqdm(input_files, desc="Launching batch jobs"):
         input_file = Path(input_file)
         subfolder_path = str(input_file.parent)
-        logging.info(f"Launching batch job for {mask_path(str(input_file))}...")
 
         try:
             batch_id = launch_batch_job(client, str(input_file), endpoint=endpoint)
@@ -406,7 +405,7 @@ def download_batch_result(
             file.write(result)
         logging.info(f"Results downloaded to {mask_path(result_path)}.")
     else:
-        raise Exception(f"Batch job {batch_id} has no output file. "
+        logging.warning(f"Batch job {batch_id} has no output file. "
                         "It may still be in progress or has failed.")
 
     # Download the error file if it exists
@@ -439,7 +438,7 @@ def download_multiple_batch_results(
         batch_id_map: dict[str, str],
         base_folder: str,
         return_as: Literal['dict', 'print'] | None = None,
-        save_summary_dict: bool = False
+        save_summary_dict: bool = False,
     ):
     """
     Download the results JSONL files of all batch jobs into their corresponding subfolders.
@@ -462,7 +461,7 @@ def download_multiple_batch_results(
                 batch_id,
                 subfolder,
                 return_as='dict',
-                save_dict=save_summary_dict
+                save_summary_dict=save_summary_dict
             )
             batch_summary_list.append(summary)
         except Exception as e:
@@ -575,7 +574,10 @@ def track_and_download_batch(client, batch_id, output_folder, verbose=False):
     """
     status = check_batch_status(client, batch_id, verbose=verbose)
     if status == 'completed':
-        summary_dict = download_batch_result(client, batch_id, output_folder, return_summary_dict=True)
+        summary_dict = download_batch_result(
+            client, batch_id, output_folder,
+            return_as='dict', save_summary_dict=False
+        )
         return 'completed', summary_dict
     elif status == 'failed':
         return 'failed', {}

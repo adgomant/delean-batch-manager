@@ -156,11 +156,16 @@ def cli(ctx, verbose, quiet, run_name):
 @click.option(
     '--source-data-file', type=click.Path(exists=True), default=None,
     help=('Path to the source data file containing prompts to be annotated. '
+          'This file should be in JSONL, CSV or Parquet format. '
+          'If JSONL format, each line must contain keys "prompt" and "custom_id". '
+          'If CSV or Parquet format, it should have columns "prompt" and "custom_id". '
           'Required for new runs.')
 )
 @click.option(
     '--rubrics-folder', type=click.Path(exists=True), default=None,
     help=('Path to the folder containing demand level rubrics. '
+          'Each rubric should be a .txt file with the demand acronym as the filename, '
+          'full name as the first line preceeded by #, and rubrics content as subsequent lines. '
           'Required for new runs.')
 )
 @click.option(
@@ -171,7 +176,7 @@ def cli(ctx, verbose, quiet, run_name):
 @click.option(
     '--annotations-folder', type=click.Path(), default=None,
     help=('Path to where final annotation results will be saved. '
-          'For new runs, default is base-folder/annotations/')
+          'For new runs, default is <base-folder>/annotations/')
 )
 @click.option(
     '--openai-model', type=str, default=None,
@@ -221,17 +226,15 @@ def setup(ctx, source_data_file, rubrics_folder, base_folder,
         deleanbm -r experiment1 setup
 
         # Update only the model for existing run
+        
         deleanbm -r experiment1 setup --openai-model gpt-4o-mini
+    \b
     """
     run_name = ctx.obj['run_name']
     registry = get_registry()
     existing_config = registry.get_run_config(run_name)
 
     if existing_config:
-        existing_api = existing_config.get('API')
-        setup_api = 'AzureOpenAI' if azure else 'OpenAI'
-        if existing_api == 'AzureOpenAI' and not azure:
-            azure = None
         return _handle_existing_run_setup(
             run_name, existing_config, source_data_file,
             rubrics_folder, base_folder, annotations_folder,
@@ -440,6 +443,7 @@ def launch(ctx, demands, parallel):
         input_files, failed = _get_demand_files(
             demands, all_subfolders, which='input'
         )
+        print(input_files)
         if failed:
             msg = (
                 "Cannot launch any job because of demands: "
@@ -451,16 +455,20 @@ def launch(ctx, demands, parallel):
             raise SystemExit(1)
     else:
         input_files = list(Path(base_folder).rglob("input.jsonl"))
+        if not input_files:
+            logging.error("No input files found in the base folder. "
+                          "Please ensure you have created the input files first.")
+            raise SystemExit(1)
 
     launch_func = (
         launch_multiple_batch_jobs_parallel if parallel
         else launch_multiple_batch_jobs
     )
 
-    ctx.obj['subfolder2id'] = launch_func(
+    batch_id_map = launch_func(
         client, input_files, endpoint
     )
-
+    batch_id_map = ctx.obj['subfolder2id'].update(batch_id_map)
     batch_id_map_file = os.path.join(base_folder, "batch_id_map.json")
     save_batch_id_map_to_file(ctx.obj['subfolder2id'], batch_id_map_file)
     logging.info("Batch ID map correctly saved")
@@ -566,6 +574,7 @@ def download(ctx, demands, parallel, save_summary_dict):
     # Get batch ID map, exits if no batch jobs found launched
     batch_id_map = _safe_get_batch_id_map(ctx)
     demands_launched = _get_launched_demands(batch_id_map)
+    save_general_summary = True
 
     if demands:
         subfolders, batch_ids, failed = _get_demand_subfolders_and_batch_ids(
@@ -596,7 +605,7 @@ def download(ctx, demands, parallel, save_summary_dict):
         )
         download_func(
             client, batch_id_map, base_folder, return_as='print',
-            save_summary_dict=save_summary_dict
+            save_summary_dict=save_summary_dict,
         )
 
 
@@ -620,12 +629,12 @@ def download(ctx, demands, parallel, save_summary_dict):
 )
 @click.option(
     '--only-succeed', is_flag=True, default=False,
-    help=('Only include successful annotations in the output.'
+    help=('Only include successful annotations in the output. '
           'Note that this is mutually exclusive with --only-failed.')
 )
 @click.option(
     '--only-failed', is_flag=True, default=False,
-    help=('Only include failed annotations in the output.'
+    help=('Only include failed annotations in the output. '
           'Note that this is mutually exclusive with --only-success.')
 )
 @click.option(
@@ -645,17 +654,24 @@ def download(ctx, demands, parallel, save_summary_dict):
 )
 @click.option(
     '--verbose', is_flag=True, default=False,
-    help=('logs warnings for any issues encountered when '
+    help=('Whether to log warnings for any issues encountered when '
           'extracting demand levels.')
+)
+@click.option(
+    '--folder', type=str, default=None,
+    help=('Optional (new) folder within the annotations folder to save parsed output files.')
 )
 @click.pass_context
 def parse_output_files(
     ctx, demands, file_type, format, only_levels, only_succeed, 
-    only_failed, split_by_demand, finish_reason, include_prompts, verbose
+    only_failed, split_by_demand, finish_reason, include_prompts, verbose, folder
     ):
     """
     Parse output JSONL files from OpenAI Batch Jobs and save the parsed
-    annotations to JSONL, CSV or Parquet format.
+    annotations to JSONL, CSV or Parquet format. Note that parsed files 
+    will be saved following a default naming convention based on the options
+    provided, so you can easily identify them: \n
+      <run_name>_annotations[_<subdomain>][_<finish_reason>][_succeed][_failed][_only_levels][_w_prompts]_<format>.<file_type>
 
     \b
     DEMANDS:
@@ -716,12 +732,19 @@ def parse_output_files(
 
     else:
         output_files = list(Path(base_folder).rglob("output.jsonl"))
+        if not output_files:
+            logging.error("No output files found in the base folder. "
+                          "Please ensure you have downloaded the results first.")
+            raise SystemExit(1)
 
     parser.parse(output_files)
     parser.summary()
 
     # Write results
     try:
+        if folder:
+            annotations_folder = os.path.join(annotations_folder, folder)
+            os.makedirs(annotations_folder, exist_ok=True)
         write_kwargs = {
             'path': annotations_folder,
             'prefix': run_name,
@@ -729,12 +752,11 @@ def parse_output_files(
         }
         match file_type:
             case 'jsonl':
-                parser.write_json(**write_kwargs)
+                parser.write_jsonl(**write_kwargs)
             case 'csv':
                 parser.write_csv(**write_kwargs)
             case 'parquet':
                 parser.write_parquet(**write_kwargs)
-        logging.info("Parsed results successfully written.")
     except Exception as e:
         logging.error(f"Error saving parsed results: {e}")
         raise SystemExit(1)
@@ -802,10 +824,10 @@ def cancel(ctx, demands):
 
 @cli.command()
 @click.option(
-    '--check-interval', default=1800, type=int,
+    '--check-interval', default=600, type=int,
     callback=_validate_positive_integer_callback,
     help=('Interval (seconds) between attempts to download results of '
-          'OpenAI Batch Jobs.')
+          'OpenAI Batch Jobs. Default is 600 seconds (10 minutes). ')
 )
 @click.option(
     '--n-jobs', default=5, type=int,

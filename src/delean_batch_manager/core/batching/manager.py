@@ -189,6 +189,8 @@ class DeLeAnBatchManager:
 
     def parse_output_files(
             self,
+            format: Literal['long', 'wide'] = 'long',
+            return_as: Literal['jsonl', 'df'] = 'jsonl',
             only_levels: bool = False,
             only_succeed: bool = False,
             only_failed: bool = False,
@@ -197,14 +199,16 @@ class DeLeAnBatchManager:
             verbose: bool = True,
             output_path: str | Path | None = None,
             file_type: Literal['jsonl', 'csv', 'parquet'] | None = None,
-            format: Literal['long', 'wide'] | None = None,
             prefix: str = "",
+            split_by_demand: bool = False
         ) -> dict | pl.DataFrame:
         """
         Parse all available output files in self.base folder from batch jobs
         and save the results to a specified output path if specified.
 
         Args:
+            format (str): Format of the output. Can be "long" or "wide".
+            return_as (str): Format to return the parsed output. Can be "jsonl" or "df".
             only_levels (bool): If True, only saves demand levels without
                 additional information about finish reasons and model responses.
             only_succeed (bool): If True, only includes successful annotations in the output.
@@ -216,10 +220,11 @@ class DeLeAnBatchManager:
             output_path (str | Path | None): Path to save the parsed output files results.
                 Path can be a either a file path or a directory. If a directory is provided, 
                 the results will be saved as 'annotations.jsonl' or 'annotations.csv'
-                in that directory. If not provided, the results will not be saved to a file.
+                in that directory. If not provided, the results will not be saved.
             file_type (str | None): Type of file to save the results. Can be 'jsonl', 'csv', or 'parquet'.
-            format (str | None): Format of the output if file_type is 'csv' or 'parquet'. "long" or "wide".
             prefix (str): Prefix for output files.
+            split_by_demand (bool): If True, splits the output files by demand level. Note that this
+                will only work if the `output_path` is a directory.
 
         Returns:
             dict or pd.DataFrame: The parsed outputs as a dictionary (for jsonl) or DataFrame (for csv/parquet).
@@ -229,6 +234,9 @@ class DeLeAnBatchManager:
             Exception: If file_type or format is not specified when output_path is provided.
         """
         assert self._output_files, "No output files found. Please download batch jobs results first."
+
+        if return_as not in ['jsonl', 'df']:
+            raise ValueError("return_as must be either 'jsonl' or 'df'.")
 
         source_prompts = None
         if include_prompts:
@@ -250,20 +258,28 @@ class DeLeAnBatchManager:
         logging.info(f"Parsed {len(parser)} results out of {self._source_data_length} prompts.")
 
         if output_path:
-            if not file_type or (file_type in ['csv', 'parquet'] and not format):
-                raise Exception("file_type and format must be specified if output_path is provided for csv/parquet.")
             output_path = Path(output_path).resolve()
+            if output_path.is_dir():
+                if not file_type:
+                    raise Exception("file_type must be specified if output_path is provided.")
+            else:
+                file_type = output_path.suffix.lstrip('.')
+            write_kwargs = {
+                'path': output_path,
+                'prefix': prefix,
+                'split_by_demand': split_by_demand
+            }
             if file_type == 'jsonl':
-                parser.write_json(output_path, prefix=prefix)
+                parser.write_jsonl(**write_kwargs)
             elif file_type == 'csv':
-                parser.write_csv(output_path, prefix=prefix)
+                parser.write_csv(**write_kwargs)
             elif file_type == 'parquet':
-                parser.write_parquet(output_path, prefix=prefix)
+                parser.write_parquet(**write_kwargs)
             else:
                 raise Exception(f"Unsupported file_type: {file_type}")
             logging.info(f"Parsed output files results saved in {mask_path(output_path)}")
 
-        return parser.to_jsonl() if file_type == 'jsonl' else parser.to_df()
+        return parser.to_jsonl() if return_as == 'jsonl' else parser.to_df()
 
     def get_batch_files(
             self,

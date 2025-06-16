@@ -150,15 +150,26 @@ def save_batch_summary(
         f"Completed at : {summary_dict['completed_at']}",
         f"Duration     : {summary_dict['duration']} seconds",
         "",
+    ]
+    batch_jobs_total = summary_dict['requests']['total']
+    batch_jobs_completed = summary_dict['requests']['completed']
+    batch_jobs_failed = summary_dict['requests']['failed']
+    summary_lines += [
         "=== Request Counts ===",
-        f"Total     : {summary_dict['requests']['total']}",
-        f"Completed : {summary_dict['requests']['completed']} ({(summary_dict['requests']['completed'] / summary_dict['requests']['total']) * 100:.2f}%)",
-        f"Failed    : {summary_dict['requests']['failed']} ({(summary_dict['requests']['failed'] / summary_dict['requests']['total']) * 100:.2f}%)",
+        f"Total     : {batch_jobs_total}",
+        f"Completed : {batch_jobs_completed} ({(batch_jobs_completed / batch_jobs_total * 100) if batch_jobs_total else 0:.2f}%)",
+        f"Failed    : {batch_jobs_failed} ({(batch_jobs_failed / batch_jobs_total * 100) if batch_jobs_total else 0:.2f}%)",
         "",
+    ]
+    finish_reasons_total = summary_dict['finish_reasons']['total']
+    finish_reasons_stop = summary_dict['finish_reasons']['stop']
+    finish_reasons_length = summary_dict['finish_reasons']['length']
+    finish_reasons_other = summary_dict['finish_reasons']['other']
+    summary_lines += [
         "=== Finish Reasons ===",
-        f"Stop   : {summary_dict['finish_reasons']['stop']} ({(summary_dict['finish_reasons']['stop'] / summary_dict['finish_reasons']['total']) * 100:.2f}%)",
-        f"Length : {summary_dict['finish_reasons']['length']} ({(summary_dict['finish_reasons']['length'] / summary_dict['finish_reasons']['total']) * 100:.2f}%)",
-        f"Other  : {summary_dict['finish_reasons']['other']} ({(summary_dict['finish_reasons']['other'] / summary_dict['finish_reasons']['total']) * 100:.2f}%)",
+        f"Stop   : {finish_reasons_stop} ({(finish_reasons_stop / finish_reasons_total * 100) if finish_reasons_total else 0:.2f}%)",
+        f"Length : {finish_reasons_length} ({(finish_reasons_length / finish_reasons_total * 100) if finish_reasons_total else 0:.2f}%)",
+        f"Other  : {finish_reasons_other} ({(finish_reasons_other / finish_reasons_total * 100) if finish_reasons_total else 0:.2f}%)",
         "",
         "=== Token Usage ===",
         f"Total prompt tokens        : {summary_dict['tokens']['prompt']:,}",
@@ -228,10 +239,9 @@ def aggregate_completion_tokens_stats(batch_summary_list):
     counts = [s['tokens']['completion'] for s in batch_summary_list]
     means = [s['tokens']['avg_completion'] for s in batch_summary_list]
     stds = [s['tokens']['std_completion'] for s in batch_summary_list]
-
-    total_n = sum(counts)
+    total_n = len(counts)
     if total_n == 0:
-        return 0, 0, 0
+        return 0, 0, 0, 0, 0
 
     # Weighted mean
     overall_mean = sum(n * m for n, m in zip(counts, means)) / total_n
@@ -260,6 +270,7 @@ def get_general_summary_dict(batch_summary_list: List[dict]) -> dict:
         dict: The aggregated summary dictionary.
     """
     models = set(summary['model'] for summary in batch_summary_list)
+    subdomains = set(summary['subdomain'] for summary in batch_summary_list)
     status_counts = Counter(summary['status'] for summary in batch_summary_list)
     status_completed = status_counts['completed']
     status_failed = status_counts['failed']
@@ -296,6 +307,7 @@ def get_general_summary_dict(batch_summary_list: List[dict]) -> dict:
 
     summary_dict = {
         "batches": len(batch_summary_list),
+        "subdomains": list(subdomains),
         "models": list(models),
         "duration": {
             "mean": mean_duration,
@@ -357,23 +369,43 @@ def save_general_summary(
     summary_lines = [
         "=== General Batch Summary ===",
         f"Number of batches      : {summary_dict['batches']}",
+        f"Subdomains             : {list(summary_dict['subdomains'])}",
         f"Models                 : {list(summary_dict['models'])}",
         f"Avg. Duration          : {summary_dict['duration']['mean']:.2f} seconds (std: {summary_dict['duration']['std']:.2f})",
         "",
+    ]
+
+    batch_jobs_total = summary_dict['status_counts']['total']
+    batch_jobs_completed = summary_dict['status_counts']['completed']
+    batch_jobs_failed = summary_dict['status_counts']['failed']
+    batch_jobs_others = summary_dict['status_counts']['others']
+    summary_lines += [
         "=== Batch Job Statuses ===",
-        f"Completed : {summary_dict['status_counts']['completed']} ({(summary_dict['status_counts']['completed'] / summary_dict['status_counts']['total']) * 100:.2f}%)",
-        f"Failed    : {summary_dict['status_counts']['failed']} ({(summary_dict['status_counts']['failed'] / summary_dict['status_counts']['total']) * 100:.2f}%)",
-        f"Other     : {summary_dict['status_counts']['others']} ({(summary_dict['status_counts']['others'] / summary_dict['status_counts']['total']) * 100:.2f}%)",
+        f"Total     : {batch_jobs_total}",
+        f"Completed : {batch_jobs_completed} ({(batch_jobs_completed / batch_jobs_total * 100) if batch_jobs_total else 0:.2f}%)",
+        f"Failed    : {batch_jobs_failed} ({(batch_jobs_failed / batch_jobs_total * 100) if batch_jobs_total else 0:.2f}%)",
+        f"Other     : {batch_jobs_others} ({(batch_jobs_others / batch_jobs_total * 100) if batch_jobs_total else 0:.2f}%)",
         "",
+    ]
+    request_counts_total = summary_dict['request_counts']['total']
+    request_counts_completed = summary_dict['request_counts']['completed']
+    request_counts_failed = summary_dict['request_counts']['failed']
+    summary_lines += [
         "=== Individual Request Counts ===",
-        f"Total     : {summary_dict['request_counts']['total']}",
-        f"Completed : {summary_dict['request_counts']['completed']} ({(summary_dict['request_counts']['completed'] / summary_dict['request_counts']['total']) * 100:.2f}%)",
-        f"Failed    : {summary_dict['request_counts']['failed']} ({(summary_dict['request_counts']['failed'] / summary_dict['request_counts']['total']) * 100:.2f}%)",
+        f"Total     : {request_counts_total}",
+        f"Completed : {request_counts_completed} ({(request_counts_completed / request_counts_total * 100) if request_counts_total else 0:.2f}%)",
+        f"Failed    : {request_counts_failed} ({(request_counts_failed / request_counts_total * 100) if request_counts_total else 0:.2f}%)",
         "",
+    ]
+    finish_reasons_total = summary_dict['finish_reasons']['total']
+    finish_reasons_stop = summary_dict['finish_reasons']['stop']
+    finish_reasons_length = summary_dict['finish_reasons']['length']
+    finish_reasons_other = summary_dict['finish_reasons']['other']
+    summary_lines += [
         "=== Finish Reasons ===",
-        f"Stop   : {summary_dict['finish_reasons']['stop']} ({(summary_dict['finish_reasons']['stop'] / summary_dict['finish_reasons']['total']) * 100:.2f}%)",
-        f"Length : {summary_dict['finish_reasons']['length']} ({(summary_dict['finish_reasons']['length'] / summary_dict['finish_reasons']['total']) * 100:.2f}%)",
-        f"Other  : {summary_dict['finish_reasons']['other']} ({(summary_dict['finish_reasons']['other'] / summary_dict['finish_reasons']['total']) * 100:.2f}%)",
+        f"Stop   : {finish_reasons_stop} ({(finish_reasons_stop / finish_reasons_total * 100) if finish_reasons_total else 0:.2f}%)",
+        f"Length : {finish_reasons_length} ({(finish_reasons_length / finish_reasons_total * 100) if finish_reasons_total else 0:.2f}%)",
+        f"Other  : {finish_reasons_other} ({(finish_reasons_other / finish_reasons_total * 100) if finish_reasons_total else 0:.2f}%)",
         "",
         "=== Token Usage ===",
         f"Total Prompt tokens        : {summary_dict['tokens']['prompt']:,}",
@@ -390,7 +422,7 @@ def save_general_summary(
         f"Total cost      : ${summary_dict['costs']['total']:.4f}",
     ]
 
-    with open(summary_path, 'w') as f:
+    with open(summary_path, 'w', encoding='utf-8') as f:
         f.write("\n".join(summary_lines))
 
     logging.info(f"General summary saved to {mask_path(summary_path)}")

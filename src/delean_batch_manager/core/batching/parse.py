@@ -146,6 +146,7 @@ class BatchOutputParser:
             only_succeed=self.args.only_succeed,
             only_failed=self.args.only_failed,
             only_levels=self.args.only_levels,
+            include_prompts=self.args.source_prompts is not None,
             format=self.args.format,
             extension=extension
         )
@@ -185,6 +186,7 @@ class BatchOutputParser:
                         sub_results.write_csv(save_path)
                     case 'parquet':
                         sub_results.write_parquet(save_path)
+            logging.info(f"Parsed results successfully written by demands at {mask_path(path)}")
         else:
             if path.is_dir():
                 if len(self._output_files) == 1:
@@ -204,8 +206,9 @@ class BatchOutputParser:
                     results.write_csv(path)
                 case 'parquet':
                     results.write_parquet(path)
+            logging.info(f"Parsed results successfully written to {mask_path(path)}")
 
-    def write_json(
+    def write_jsonl(
             self, path: str | Path,
             prefix: str = '',
             split_by_demand: bool = False
@@ -301,13 +304,13 @@ class BatchOutputParser:
 
         failed_with_breakdown = {
             'count': failed,
-            'percent': round(100 * failed / total, 1),
+            'percent': round(100 * failed / total, 2),
         }
         if failed_breakdown:
             failed_with_breakdown['finish_reasons'] = {
                 k: {
                     'count': v,
-                    'percent': round(100 * v / failed, 1) if failed > 0 else 0.0
+                    'percent': round(100 * v / failed, 2) if failed > 0 else 0.0
                 } for k, v in failed_breakdown.items()
             }
 
@@ -315,7 +318,7 @@ class BatchOutputParser:
             'total': total,
             'successful': {
                 'count': success,
-                'percent': round(100 * success / total, 1)
+                'percent': round(100 * success / total, 2)
             },
             'failed': failed_with_breakdown
         }
@@ -326,7 +329,7 @@ class BatchOutputParser:
         # Print nicely
         print(f"\nParsed {total} annotations:")
         print(f"  Successful: {success} ({summary['successful']['percent']}%)")
-        print(f"  Failed:     {failed} ({failed_with_breakdown['percent']}%)")
+        print(f"  Failed: {failed} ({failed_with_breakdown['percent']}%)")
         if 'finish_reasons' in failed_with_breakdown:
             for k, v in failed_with_breakdown['finish_reasons'].items():
                 print(f"    - {k}: {v['count']} ({v['percent']}%)")
@@ -548,13 +551,14 @@ def _get_default_annotations_file_name(
         only_succeed: bool = False,
         only_failed: bool = False,
         only_levels: bool = False,
+        include_prompts: bool = False,
         format: Literal['long', 'wide'] = 'long',
         extension: Literal['jsonl', 'csv', 'parquet'] = 'jsonl',
     ) -> str:
     """
     Generate a default file name for the annotations file based on the
     provided parameters. The file name will follow the format:
-        '[<prefix>_]<base_name>[_<finish_reason>][_succeed][_failed][_only_levels][_format].<extension>'
+        '[<prefix>_]<base_name>[_<finish_reason>][_succeed][_failed][_only_levels][_w_prompts][_format].<extension>'
 
     where:
         - <prefix> is an optional prefix for the file name.
@@ -565,6 +569,7 @@ def _get_default_annotations_file_name(
         - [_succeed] is included if only_succeed is True.
         - [_failed] is included if only_failed is True.
         - [_only_levels] is included if only_levels is True.
+        - [_w_prompts] is included if include_prompts is True.
         - [_format] is included if format is 'wide'.
         - <extension> is the file extension.
 
@@ -594,6 +599,8 @@ def _get_default_annotations_file_name(
         parts.append('failed')
     if only_levels:
         parts.append('only_levels')
+    if include_prompts:
+        parts.append('w_prompts')
     parts.append(f'{format}')
     filename = '_'.join(parts) + f'.{extension}'
     return filename

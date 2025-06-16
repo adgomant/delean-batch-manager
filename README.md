@@ -54,18 +54,19 @@ pip install git+https://github.com/adgomant/delean-batch-manager.git
 ```bash
 cd path/to/my/project/
 
-deleanbm --run-name example_run setup \
-    --data-path ./data/prompt_data.jsonl \ 
-    --rubrics-path .data/rubrics \
-    --base-folder ./batch_runs/example_run \
-    --annotations-folder ./data/annotations
-    --openai-model gpt-4o
+$ deleanbm --run-name example_run setup \          # setup new run ‘example_run’
+    --source-data-file ./data/prompt_data.jsonl \  # each line contains a ‘prompt’ and ‘idx’ key
+    --rubrics-folder .data/rubrics \               # could contain newly-defined rubrics
+    --base-folder ./batch_runs/example_run \       # where-to save per-demand folder structure
+    --annotations-folder ./data/annotations        # where-to save structured annotations
+    --azure                                        # tells the program to work with Azure client
+    --openai-model gpt-4o-global-batch             # custom model deployed on Azure OpenAI
     --max-completion-tokens 1000
 
-deleanbm -r example_run create-input-files
-deleanbm -r example_run launch -parallel
-deleanbm -r example_run track-and-download-loop --check-interval 300
-deleanbm -r example_run parse-output-files --file-type csv --format wide
+$ deleanbm -r example_run create-input-files
+$ deleanbm -r example_run launch
+$ deleanbm -r example_run track-and-download-loop --check-interval 300
+$ deleanbm -r example_run parse-output-files --file-type csv --format wide
 ```
 
 ### CLI help
@@ -91,7 +92,7 @@ client = create_openai_client()
 
 manager = DeLeAnBatchManager(
     client=client
-    base_folder="./annotations",
+    base_folder="./experiments/batch_runs",
     source_data_file="./data/prompts.jsonl"
     rubrics_folder="./rubrics",
     openai_model="gpt-4o",
@@ -101,7 +102,14 @@ manager = DeLeAnBatchManager(
 manager.create_input_files()
 manager.launch()
 manager.track_and_download_loop(check_interval=300)
-manager.parse_output_files(file_type="csv", format="wide")
+annotations = manager.parse_output_files(return_as="df", format="wide")
+
+# if you also want to save them
+annotations = manager.parse_output_files(
+    return_as="df", format="wide", 
+    output_path="./data/annotations/", 
+    file_type="csv"
+)
 ```
 
 Check the `examples/` or `notebooks/` folders for more detailed examples.

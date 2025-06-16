@@ -121,10 +121,10 @@ def create_subdomain_batch_input_files(
                 max_lines_per_file=max_lines_per_file
             )
             final_paths.extend(part_paths)
-            logging.info(f"{subdomain_dict['full_name']} batch input file splitted into {len(part_paths)} parts")
+            logging.info(f"{acronym} batch input file splitted into {len(part_paths)} parts")
         else:
             final_paths.append(output_file)
-            logging.info(f"Created batch file for demand {subdomain_dict['full_name']}")
+            logging.info(f"Created batch file for subdomain {acronym}")
 
     logging.info(f"Total files created: {len(final_paths)}")
 
