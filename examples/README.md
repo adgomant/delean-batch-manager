@@ -20,8 +20,8 @@ Your project directory might look like this:
 project/
 ├── data/
 │   └── prompt_data.jsonl      # Input prompts to annotate — one per line
-│                              # Each entry must include: "prompt" and "custom_id"
-│                              # You can also use CSV or Parquet formats
+│                              # Each entry must include "prompt" and "custom_id" keys
+│                              # You can also use CSV or Parquet with according columns.
 ├── experiments/
 ├── rubrics/
 │   ├── AS.txt
@@ -52,9 +52,9 @@ export OPENAI_API_KEY=<your_key>
 ```
 
 Or store them in a `.env` file in your project directory.
-> If you do this, always run this CLI from that directory, as it will look for the file in the current working directory. 
+> If you do this, always run the `deleanbm` command from that directory, as it will look for the file in the current working directory.
 
-For more flexibility you can store the in the `.env` file that comes with this package after cloning it as the program will always fallback to that file when trying to setup the environment.
+For more flexibility you can store the in the `.env` file that comes with this package after cloning it, as the program will always fallback to that file when trying to setup the environment.
 
 ---
 
@@ -73,8 +73,10 @@ deleanbm --run-name example_run setup \
   --max-completion-tokens 1000
 ```
 
-> `--azure` flag tells the program to work on with Azure Environment. If this is set, your `--openai_model` must be the name of a model deployed on your Azure environment. \\
-> If you are working without Azure, just omit this flag or speicify `--no-azure`. In this case your `--openai-model` is a common identifier of the model in the OpenAI API. \\
+> `--azure` flag tells the program to work on with Azure Environment. If this is set, your `--openai_model` must be the name of a model deployed on your Azure environment.
+>
+> If you are working without Azure, just omit this flag or speicify `--no-azure`. In this case your `--openai-model` is a common identifier of the model in the OpenAI API.
+>
 > For more information about how to setup a new run or better understand each option, run `deleanbm setup --help`
 
 After this step, both `base-folder` and `annotations-folder` will be created if they don't already exist. Your project structure might now look like this:
@@ -109,7 +111,8 @@ deleanbm -r example_run create-input-files
 ```
 
 By default, input files will be generated for **all rubrics** found in your `rubrics/` folder. 
-> You can also create files for specific demands providing its names as arguments (without any option flag). See `deleanbm create-input-files --help` for details.
+> You can also create files for specific demands providing its names as arguments (without any option flag). \
+> See `deleanbm create-input-files --help` for details.
 
 This will produce one subfolder per rubric in your `base-folder`, each containing an `input.jsonl` file:
 
@@ -163,7 +166,7 @@ You can check the current status of all jobs associated with your run:
 deleanbm -r example_run check
 ```
 
-This will show the state of each batch job (e.g., `validating`, `in_progress`, `completed`, `failed`), and a general summary of all theis statuses.
+This will show the state of each batch job (e.g., `validating`, `in_progress`, `completed`, `failed`), and a general summary of all their statuses.
 
 > You can filter by demand(s) if you only want to check a subset. See `deleanbm check --help` for more information.
 
@@ -204,7 +207,7 @@ project/
 
 > Again, you could specify demand(s) providing them as arguments. See `deleanbm download --help` for more information
 
-Note that this will only download `output.jsonl` (and `summary.txt`) files if the jobs were 'completed'. You could also find one more file named as `errors.jsonl` even if the job was 'completed'. This file will contain one line for each failed request within the original `input.jsonl`. This could happen if some requests contain prompts that violate their Terms of Service, or if something was wrongly specified in the request object.
+Note that this will only download `output.jsonl` (and `summary.txt`) files if the jobs were `completed`. You could also find one more file named as `errors.jsonl` even if the job was `completed`. This file will contain one line for each failed request within the original `input.jsonl`. This could happen if some requests contain prompts that violate their Terms of Service, or if something was wrongly specified in the request object.
 
 > Additionaly, once a job is downloaded, the `batch_metadata.jsonl` will be updated by saving the batch object at the time of the download.
 
@@ -249,13 +252,13 @@ This command supports a wide range of output configurations to adapt to differen
 - Filter results by status (only successful or only failed annotations)
 - Filter by specific `finish_reason`
 
-> ℹ️ `finish_reason` values:
->
-> - `stop`: the model ended naturally (usually good)
-> - `length`: the model was cut off due to reaching `max_completion_tokens`
-> - `other`: rare cases, e.g., safety filters or unexpected failures
->
-> These can affect extraction reliability. It's often useful to treat `length` failures separately to distinguish between *“model didn’t know”* and *“model ran out of room.”*
+>> ℹ️ `finish_reason` values:
+>>
+>> - `stop`: the model ended naturally (usually good)
+>> - `length`: the model was cut off due to reaching `max_completion_tokens`
+>> - `other`: rare cases, e.g., safety filters or unexpected failures
+>>
+>> These can affect extraction reliability. It's often useful to treat `length` failures separately to distinguish between *“model didn’t know”* and *“model ran out of room.”*
 
 - Include or exclude additional metadata such as the full model response, finish reason, or original prompt
 - Output a single file or one per demand
@@ -276,7 +279,7 @@ Outputs all annotations in a single long-format JSONL file with model responses 
 deleanbm -r example_run parse-output-files
 ```
 
-#### 🔹 Wide-format CSV with only successful annotations
+#### 🔹 Wide-format CSV
 This produces one row per prompt and one column per demand. Missing annotations (due to failed extractions) will appear as NaNs:
 
 ```bash
@@ -308,4 +311,35 @@ Long-format files can become large (`n_prompts × n_rubrics` rows). Parquet offe
 ```bash
 deleanbm -r example_run parse-output-files \
   --file-type parquet --only-succeed
+```
+ 
+---
+
+After running all the previous commands your proyect structure will look like:
+
+```bash
+project/
+├── data/
+│   ├── annotations/
+│   │   ├── failed_length/
+│   │   │   ├── example_run_annotations_AS_length_failed_only_levels_w_prompts.jsonl
+│   │   │   └── ...
+│   │   ├── example_run_annotations_long.jsonl
+│   │   ├── example_run_annotations_wide.csv
+│   │   ├── example_run_annotations_stop_failed.jsonl
+│   │   └── example_run_annotations_succeed.parquet
+│   └── prompt_data.jsonl
+├── rubrics/
+│   ├── AS.txt
+│   └── ...
+├── experiments/
+│   └── batch_runs/
+│       ├── AS/
+│       │   ├── input.jsonl
+│       │   ├── batch_metadata.jsonl
+│       │   ├── output.jsonl
+│       │   └── summary.txt
+│       ├── ...
+│       └── summary.txt
+└── .env
 ```
