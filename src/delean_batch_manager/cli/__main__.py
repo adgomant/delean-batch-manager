@@ -84,7 +84,6 @@ def main():
             logger.exception("CLI execution failed")
         else:
             logger.error(f"CLI execution failed: {e}")
-            raise e
         sys.exit(1)
 
 
