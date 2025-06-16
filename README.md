@@ -148,7 +148,7 @@ Examples:
 ...
 ```
 
-> Note that this is a simple example and the real content should be much more detailed. You can get inspiration from the provided rubrics on how to define them.
+> Note that this is a simple example and the real content should be much more detailed. You can get inspiration from the provided rubrics on how to properly define them.
 
 Place your rubric file in your rubrics directory and it will be automatically available for annotation.
 For consistency with the framework, you should define the rubric to describe, at least, from levels 0 to 5 of the new Demand Level and include some examples for each of them.
