@@ -116,18 +116,43 @@ class BatchOutputParser:
             df = df.fill_null(np.nan)
         return df
 
-    def _validate_path(self, path: str | Path):
+    def _validate_path(self, path: str | Path) -> Path:
+        """
+        Validate the given path. If it's a directory and doesn't exist, create it.
+        If it's a file, ensure its parent directories exist. Raise an error for invalid paths.
+
+        Args:
+            path (str | Path): The path to validate.
+
+        Returns:
+            Path: The resolved Path object.
+
+        Raises:
+            ValueError: If the path is neither a valid file nor a directory.
+        """
         if not isinstance(path, (str, Path)):
             raise ValueError("`path` must be a string or a Path object.")
+
         path = Path(path).resolve()
-        if path.is_dir():
-            if not path.exists():
-                logging.info("Creating directory: %s", mask_path(path))
-                path.mkdir(parents=True, exist_ok=True)
+
+        if path.exists():
+            # If the path exists, check if it's a directory or file
+            if path.is_dir():
+                return path
+            elif path.is_file():
+                return path
+            else:
+                raise ValueError(f"The path '{path}' exists but is neither a file nor a directory.")
         else:
-            if not path.exists():
-                raise ValueError(f"The specified file path does not exist: {mask_path(path)}")
-        return path
+            # If the path does not exist, determine if it's a file or directory
+            if path.suffix:  # If the path has a file extension, treat it as a file
+                parent_dir = path.parent
+                if not parent_dir.exists():
+                    parent_dir.mkdir(parents=True, exist_ok=True)
+                return path
+            else:  # Otherwise, treat it as a directory
+                path.mkdir(parents=True, exist_ok=True)
+                return path
 
     def _get_default_filename(
             self,

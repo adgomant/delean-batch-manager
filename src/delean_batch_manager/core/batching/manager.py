@@ -256,7 +256,7 @@ class DeLeAnBatchManager:
             include_prompts: bool = False,
             verbose: bool = True,
             output_path: str | Path | None = None,
-            file_type: Literal['jsonl', 'csv', 'parquet'] | None = None,
+            file_type: Literal['jsonl', 'csv', 'parquet'] = 'jsonl',
             prefix: str = "",
             split_by_demand: bool = False
         ) -> dict | pl.DataFrame:
@@ -279,8 +279,10 @@ class DeLeAnBatchManager:
                 Path can be a either a file path or a directory. If a directory is provided, 
                 the results will be saved as 'annotations.jsonl' or 'annotations.csv'
                 in that directory. If not provided, the results will not be saved.
-            file_type (str | None): Type of file to save the results. Can be 'jsonl', 'csv', or 'parquet'.
-            prefix (str): Prefix for output files.
+            file_type (str): Type of file to save the results. Can be 'jsonl', 'csv', or 'parquet'.
+                Only used if `output_path` is provided and is a directory. Default is 'jsonl'.
+            prefix (str): Prefix for output files. Only used if `output_path` is provided and
+                is a directory.
             split_by_demand (bool): If True, splits the output files by demand level. Note that this
                 will only work if the `output_path` is a directory.
 
@@ -306,14 +308,10 @@ class DeLeAnBatchManager:
             format=format
         )
         parser.parse(self._output_files)
-        #logging.info(f"Parsed {len(parser)} results out of {self._source_data_length} prompts.")
 
         if output_path:
             output_path = Path(output_path).resolve()
-            if output_path.is_dir():
-                if not file_type:
-                    raise Exception("file_type must be specified if output_path is provided.")
-            else:
+            if output_path.suffix:
                 file_type = output_path.suffix.lstrip('.')
             write_kwargs = {
                 'path': output_path,
