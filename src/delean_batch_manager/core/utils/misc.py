@@ -2,6 +2,7 @@
 
 import os
 import json
+import yaml
 import logging
 from pathlib import Path
 
@@ -37,7 +38,33 @@ def read_jsonl(path):
     """
     with open(path, 'r', encoding='utf-8') as f:
         return [json.loads(line) for line in f]
+    
 
+def read_yaml(path):
+    """
+    Read a YAML file and return its content.
+
+    Args:
+        path (str): Path to the input YAML file.
+
+    Returns:
+        dict: Content of the YAML file.
+    """
+    with open(path, 'r', encoding='utf-8') as f:
+        content = yaml.safe_load(f)
+    return content
+
+
+def write_yaml(data, path):
+    """
+    Write data to a YAML file.
+
+    Args:
+        data (dict): Data to write to the YAML file.
+        path (str): Path to the output YAML file.
+    """
+    with open(path, 'w', encoding='utf-8') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 #=======================================================================
 # Parallel Processing Utilities

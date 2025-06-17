@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import Dict, Optional, List
 import logging
 
+from .misc import read_yaml, write_yaml
+
 
 # Global registry instance
 _registry = None
@@ -37,8 +39,8 @@ class RunRegistry:
     def _load_registry(self) -> Dict:
         """Load the registry from disk."""
         try:
-            with open(self.registry_path, 'r') as f:
-                return yaml.safe_load(f) or {"runs": {}}
+            config = read_yaml(self.registry_path)
+            return config or {"runs": {}}
         except Exception as e:
             logging.warning(f"Error loading registry: {e}. Creating new registry.")
             return {"runs": {}}
@@ -46,8 +48,7 @@ class RunRegistry:
     def _save_registry(self, registry: Dict):
         """Save the registry to disk."""
         try:
-            with open(self.registry_path, 'w') as f:
-                yaml.dump(registry, f, default_flow_style=False, sort_keys=False)
+            write_yaml(registry, self.registry_path)
         except Exception as e:
             logging.error(f"Error saving registry: {e}")
             raise
@@ -90,8 +91,7 @@ class RunRegistry:
 
         # Load and return the actual config
         try:
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f)
+            config = read_yaml(config_path)
             return config
         except Exception as e:
             logging.error(f"Error loading config for run '{run_name}': {e}")

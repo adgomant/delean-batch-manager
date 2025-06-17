@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import polars as pl
+from pathlib import Path
 
 from .misc import read_jsonl
 
@@ -50,9 +51,10 @@ def read_source_data_jsonl(source_data_file, as_map=False):
 
 def read_source_data_tabular(source_data_file,  as_map=False):
     """Read source data from a CSV or PARQUET file."""
-    if source_data_file.endswith(".csv"):
+    source_data_file = Path(source_data_file)
+    if source_data_file.suffix == '.csv':
         df = pl.read_csv(source_data_file)
-    elif source_data_file.endswith('.parquet'):
+    elif source_data_file.suffix == '.parquet':
         df = pl.read_parquet(source_data_file)
     else:
         raise ValueError('Source data file must be either CSV or PARQUET')
@@ -71,12 +73,12 @@ def read_source_data_tabular(source_data_file,  as_map=False):
 
 def read_source_data(source_data_file, as_map=False):
     """Read source data from a JSONL, CSV or PARQUET file."""
-    if source_data_file.endswith('.jsonl'):
+    source_data_file = Path(source_data_file)
+    if source_data_file.suffix == '.jsonl':
         return read_source_data_jsonl(source_data_file, as_map=as_map)
-    elif source_data_file.endswith('.csv') or source_data_file.endswith('.parquet'):
+    if source_data_file.suffix in ['.csv', '.parquet']:
         return read_source_data_tabular(source_data_file, as_map=as_map)
-    else:
-        raise ValueError("Source data file must be a JSONL, CSV or PARQUET file.")
+    raise ValueError("Source data file must be a JSONL, CSV or PARQUET file.")
 
 
 def read_only_prompts_from_source_data_jsonl(source_data_file):
@@ -92,9 +94,10 @@ def read_only_prompts_from_source_data_jsonl(source_data_file):
 
 def read_only_prompts_from_source_data_tabular(source_data_file):
     """Read only prompts from a CSV or PARQUET source data file."""
-    if source_data_file.endswith('.csv'):
+    source_data_file = Path(source_data_file)
+    if source_data_file.suffix == '.csv':
         df = pl.read_csv(source_data_file)
-    elif source_data_file.endswith('.parquet'):
+    elif source_data_file.suffix == '.parquet':
         df = pl.read_parquet(source_data_file)
     else:
         raise ValueError("Source data file must be a CSV or PARQUET file.")
@@ -103,9 +106,9 @@ def read_only_prompts_from_source_data_tabular(source_data_file):
 
 def read_only_prompts_from_source_data(source_data_file):
     """Read only prompts from a JSONL or CSV source data file."""
-    if source_data_file.endswith('.jsonl'):
+    source_data_file = Path(source_data_file)
+    if source_data_file.suffix == '.jsonl':
         return read_only_prompts_from_source_data_jsonl(source_data_file)
-    elif source_data_file.endswith('.csv') or source_data_file.endswith('.parquet'):
+    if source_data_file.suffix in ['.csv', '.parquet']:
         return read_only_prompts_from_source_data_tabular(source_data_file)
-    else:
-        raise ValueError("Source data file must be a JSONL, CSV or PARQUET file.")
+    raise ValueError("Source data file must be a JSONL, CSV or PARQUET file.")

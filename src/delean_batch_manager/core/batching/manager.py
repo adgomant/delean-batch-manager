@@ -35,15 +35,28 @@ from ..utils.datasource import (
     read_source_data,
     read_only_prompts_from_source_data,
 )
+from ..utils.clients import(
+    create_azure_openai_client,
+    create_openai_client
+)
 from ..utils.misc import (
     assert_required_path,
     ensure_output_path,
     mask_path,
-    resolve_n_jobs
+    resolve_n_jobs,
+    read_yaml
 )
 
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, 
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
+logging.getLogger("azure").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class DeLeAnBatchManager:
@@ -63,6 +76,7 @@ class DeLeAnBatchManager:
         self.base_folder = Path(base_folder).resolve()
         self.source_data_path = Path(source_data_path).resolve()
         self.rubrics_folder = Path(rubrics_folder).resolve()
+        self.rubrics_catalog = RubricsCatalog(self.rubrics_folder)
         self.max_tokens = max_completion_tokens
         self.openai_model = openai_model
         self.endpoint = "/chat/completions"
@@ -76,7 +90,49 @@ class DeLeAnBatchManager:
         self.__ensure_output_paths()
 
         # Try to load existing batch ID map from file if it exists in the base folder
-        self.load_batch_id_map_from_file(verbose=False)
+        self.__try_load_all()
+
+    @classmethod
+    def from_config(cls, manager_file_path: str | Path):
+        """
+        Create a DeLeAnBatchManager instance from a configuration file.
+
+        Args:
+            manager_file_path (str | Path): Path to the configuration file.
+
+        Returns:
+            DeLeAnBatchManager: An instance of DeLeAnBatchManager initialized with the configuration.
+        """
+        config = read_yaml(manager_file_path)
+        required = ['API', 'base_folder', 'source_data_file', 'rubrics_folder']
+        if set(required) - set(config.keys()):
+            raise ValueError(f"Configuration file must contain the following keys: {', '.join(required)}")
+        if config['API'] == 'AzureOpenAI':
+            client = create_azure_openai_client()
+        else:
+            client = create_openai_client()
+        return cls(
+            client=client,
+            base_folder=config['base_folder'],
+            source_data_path=config['source_data_file'],
+            rubrics_folder=config['rubrics_folder'],
+            max_completion_tokens=config.get('max_completion_tokens', 1000),
+            openai_model=config.get('openai_model', 'gpt-4o')
+        )
+
+    def __try_load_all(self):
+        try:
+            self.load_batch_id_map_from_file(verbose=False)
+            self._input_files = self.get_batch_files(which='input')
+            self._output_files = self.get_batch_files(which='output')
+            self._completed = set()
+            if self._output_files:
+                for outfile in self._output_files:
+                    for subf, bid in self.batch_id_map.items():
+                        if outfile.parent == Path(subf):
+                            self._completed.add(bid)
+        except:
+            pass
 
     def __assert_required_paths(self):
         assert_required_path(self.source_data_path, description="Source data path")
@@ -91,7 +147,7 @@ class DeLeAnBatchManager:
 
     def get_batch_api_pricing(
             self,
-            openai_model: str | list = "gpt-4o",
+            openai_model: str | list | None = "gpt-4o",
             max_completion_tokens: int | None = 1000,
             estimation: Literal['aprox', 'exact'] = 'aprox',
             n_jobs: int | None = None,
@@ -119,8 +175,7 @@ class DeLeAnBatchManager:
             raise ValueError("openai_model must be a string or a list of strings.")
 
         prompts = read_only_prompts_from_source_data(self.source_data_path)
-        handler = RubricsCatalog(self.rubrics_folder)
-        rubrics = handler.get_rubrics_dict()
+        rubrics = self.rubrics_catalog.get_rubrics_dict()
 
         if verbose:
             logging.info("Calculating batch API pricing...")
@@ -156,13 +211,9 @@ class DeLeAnBatchManager:
         max_bytes_per_file = 190 * 1024**2                                    # 190MB = 200MB (OpenAI Batch API limit) - 10MB (safety margin)
         max_lines_per_file = 100_000 if self._is_azure_client else 50_000     # Set 100K if using Azure OpenAI client, otherwise 50K         
 
-        logging.info(f"Reading prompt data from {mask_path(self.source_data_path)}")
         prompt_data = read_source_data(self.source_data_path)
         self._source_data_length = len(prompt_data)
-
-        logging.info(f"Reading rubrics from {mask_path(self.rubrics_folder)}")
-        handler = RubricsCatalog(self.rubrics_folder)
-        rubrics = handler.get_rubrics_dict()
+        rubrics = self.rubrics_catalog.get_rubrics_dict()
 
         if demands is not None:
             if isinstance(demands, str):
@@ -185,7 +236,7 @@ class DeLeAnBatchManager:
             max_bytes_per_file=max_bytes_per_file
         )
 
-        self._input_files = self.get_batch_files(demand_levels=demands, which='input')
+        self._input_files = self.get_batch_files(demands=demands, which='input')
 
     def parse_output_files(
             self,
@@ -242,9 +293,9 @@ class DeLeAnBatchManager:
         if include_prompts:
             logging.info(f"Reading prompts from {mask_path(self.source_data_path)}")
             source_prompts = read_source_data(self.source_data_path, as_map=True)
-        
+
         logging.info(f"Parsing output files in {mask_path(self.base_folder)}")
-        
+
         parser = BatchOutputParser(
             only_levels=only_levels,
             only_succeed=only_succeed,
@@ -255,7 +306,7 @@ class DeLeAnBatchManager:
             format=format
         )
         parser.parse(self._output_files)
-        logging.info(f"Parsed {len(parser)} results out of {self._source_data_length} prompts.")
+        #logging.info(f"Parsed {len(parser)} results out of {self._source_data_length} prompts.")
 
         if output_path:
             output_path = Path(output_path).resolve()
@@ -277,7 +328,6 @@ class DeLeAnBatchManager:
                 parser.write_parquet(**write_kwargs)
             else:
                 raise Exception(f"Unsupported file_type: {file_type}")
-            logging.info(f"Parsed output files results saved in {mask_path(output_path)}")
 
         return parser.to_jsonl() if return_as == 'jsonl' else parser.to_df()
 
@@ -302,6 +352,10 @@ class DeLeAnBatchManager:
             Exception: If no output files are found for the specified demand name(s).
         """
         files = Path(self.base_folder).rglob(f"{which}.jsonl")
+        if not files:
+            msg = "create input" if which == 'input' else "download output"
+            raise Exception(f"No {which} files found in the base folder. "
+                            f"Please {msg} files first.")
 
         if demands is None:
             return list(files)
@@ -609,7 +663,7 @@ class DeLeAnBatchManager:
                 return
 
         finalized_batch_id_map = {
-            k: v for k, v in self.batch_id_map.items() 
+            k: v for k, v in self.batch_id_map.items()
             if v in self._completed
         }
         download_func = (
@@ -830,7 +884,7 @@ class DeLeAnBatchManager:
 
         logging.info(f"Creating batch files from {mask_path(self.source_data_path)} and {mask_path(self.rubrics_folder)}...")
         self.create_input_files(demands=demands)
-        logging.info(f"Batch files created in {mask_path(os.path.join(self.base_folder, '*', 'input.jsonl'))}.")
+        logging.info(f"Batch files created in {mask_path(Path(self.base_folder) / '*' / 'input.jsonl')}.")
 
         logging.info("Launching all batch jobs...")
         self.launch(parallel=parallel_launch)
@@ -839,6 +893,6 @@ class DeLeAnBatchManager:
         self.track_and_download_loop(
             check_interval=check_interval, n_jobs=max_workers_for_track
         )
-        logging.info(f"All batch jobs tracked and downloaded in {mask_path(os.path.join(self.base_folder, '*', 'output.jsonl'))}.")
+        logging.info(f"All batch jobs tracked and downloaded in {mask_path(Path(self.base_folder) / '*' / 'output.jsonl')}.")
 
         logging.info("Pipeline complete.")
