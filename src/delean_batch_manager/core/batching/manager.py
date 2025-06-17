@@ -156,10 +156,17 @@ class DeLeAnBatchManager:
         Estimate the cost of batch API calls for the given OpenAI model.
 
         Args:
-            openai_model (str | list): OpenAI model name or list of model names.
+            openai_model (str | list | None): OpenAI model name or list of model names.
+                If None, uses the default model set in the manager.
             max_completion_tokens (int): Maximum number of tokens for completion.
+                If None, uses the default max tokens set in the manager.
             estimation (str): Type of estimation to perform ('aprox' or 'exact').
+                Default is 'aprox'.
             n_jobs (int): Number of parallel jobs to run for pricing estimation.
+                - If -1, uses all available CPU cores.
+                - If 1, uses a single thread.
+                - If >1, uses that many workers, capped at available cores.
+                - If None, fallbacks to serial execution.
             verbose (bool): Whether to log detailed information.
 
         Returns:
@@ -168,6 +175,8 @@ class DeLeAnBatchManager:
         Raises:
             ValueError: If openai_model is not a string or a list of strings.
         """
+        if openai_model is None:
+            openai_model = self.openai_model
         if isinstance(openai_model, str):
             openai_model = [openai_model]
         if not isinstance(openai_model, list):
@@ -211,7 +220,6 @@ class DeLeAnBatchManager:
         max_lines_per_file = 100_000 if self._is_azure_client else 50_000     # Set 100K if using Azure OpenAI client, otherwise 50K         
 
         prompt_data = read_source_data(self.source_data_path)
-        self._source_data_length = len(prompt_data)
         rubrics = self.rubrics_catalog.get_rubrics_dict()
 
         if demands is not None:
@@ -278,10 +286,6 @@ class DeLeAnBatchManager:
 
         Returns:
             dict or pd.DataFrame: The parsed outputs as a dictionary (for jsonl) or DataFrame (for csv/parquet).
-
-        Raises:
-            AssertionError: If no output files were downloaded yet.
-            Exception: If file_type or format is not specified when output_path is provided.
         """
         assert self._output_files, "No output files found. Please download batch jobs results first."
 
@@ -290,10 +294,7 @@ class DeLeAnBatchManager:
 
         source_prompts = None
         if include_prompts:
-            logging.info(f"Reading prompts from {mask_path(self.source_data_path)}")
             source_prompts = read_source_data(self.source_data_path, as_map=True)
-
-        logging.info(f"Parsing output files in {mask_path(self.base_folder)}")
 
         parser = BatchOutputParser(
             only_levels=only_levels,
