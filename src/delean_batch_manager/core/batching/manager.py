@@ -7,7 +7,6 @@ import polars as pl
 from pathlib import Path
 from typing import List, Literal
 
-
 from ..batching.pricing import get_batch_api_pricing
 from ..batching.files import create_subdomain_batch_input_files
 from ..batching.parse import BatchOutputParser
@@ -35,7 +34,7 @@ from ..utils.datasource import (
     read_source_data,
     read_only_prompts_from_source_data,
 )
-from ..utils.clients import(
+from ..utils.clients import (
     create_azure_openai_client,
     create_openai_client
 )
