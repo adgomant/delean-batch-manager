@@ -50,6 +50,7 @@ requires-python = "~=3.11"
 # CORE DEPENDENCIES
 # ============================================================================
 dependencies =[
+    "numpy==1.26.4",         # Numerical operations
     "click==8.1.8",          # CLI framework
     "openai==1.78.0",        # OpenAI API client
     "platformdirs==4.3.7",   # Cross-platform directories
