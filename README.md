@@ -78,6 +78,8 @@ deleanbm --help
 deleanbm launch --help
 ```
 
+Check the [**`examples/`**](https://github.com/adgomant/delean-batch-manager/tree/master/examples) folder for more detailed examples and CLI walktrough.
+
 ---
 
 ## 🐍 Python API Usage
@@ -111,8 +113,6 @@ annotations = manager.parse_output_files(
     file_type="csv"
 )
 ```
-
-Check the [**`examples/`**](https://github.com/adgomant/delean-batch-manager/tree/master/examples) folder for more detailed examples.
 
 ---
 
