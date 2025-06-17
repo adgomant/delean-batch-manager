@@ -54,7 +54,7 @@ export OPENAI_API_KEY=<your_key>
 Or store them in a `.env` file in your project directory.
 > If you do this, always run the `deleanbm` command from that directory, as it will look for the file in the current working directory.
 
-For more flexibility you can store the in the `.env` file that comes with this package after cloning it, as the program will always fallback to that file when trying to setup the environment.
+For more flexibility you can store them in the `.env` file that comes with this package after cloning it, as the program will always fallback to that file when trying to setup the environment.
 
 ---
 
