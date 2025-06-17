@@ -26,6 +26,7 @@ from ..utils.misc import mask_path
 from .summary import save_batch_summary, save_general_summary
 from .utils import save_batch_metadata
 
+
 LAUNCH_MAX_WORKERS = 3    # Conservative number of workers to avoid rate limits
 DOWNLOAD_MAX_WORKERS = 5  # Moderate number of workers for downloading results
 CHECK_MAX_WORKERS = 8     # Aggressive number of workers for checking statuses
