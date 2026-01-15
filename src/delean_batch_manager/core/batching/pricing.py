@@ -11,7 +11,14 @@ from ..utils.misc import resolve_n_jobs
 
 MODEL2PRICE = {
     # Pricing in USD per 1M tokens for Batch API
-    # (https://platform.openai.com/docs/pricing)
+    # (https://platform.openai.com/docs/pricing?latest-pricing=batch)
+    'gpt-5.2'            : {'input': 0.875, 'output': 7  },
+    'gpt-5.1'            : {'input': 0.625, 'output': 5  },
+    'gpt-5'              : {'input': 0.625, 'output': 5  },
+    'gpt-5-mini'         : {'input': 0.125, 'output': 1  },
+    'gpt-5-nano'         : {'input': 0.025, 'output': 0.2 },
+    'gpt-5.2-pro'        : {'input': 10.50, 'output': 84  },
+    'gpt-5-pro'          : {'input': 7.50,  'output': 60  },
     'gpt-4.1'            : {'input': 1,     'output': 4   },
     'gpt-4.1-mini'       : {'input': 0.2,   'output': 0.8 },
     'gpt-4.1-nano'       : {'input': 0.05,  'output': 0.2 },
