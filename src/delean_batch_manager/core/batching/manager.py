@@ -757,7 +757,9 @@ class DeLeAnBatchManager:
             check_interval=check_interval,
             max_workers=max_workers
         )
+        
         self._completed.update(completed)
+        self._output_files = self.get_batch_files(which='output')
 
         return completed, failed
 
