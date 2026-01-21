@@ -245,16 +245,16 @@ def aggregate_completion_tokens_stats(batch_summary_list):
 
     n_requests = [s['requests']['total'] for s in batch_summary_list]
 
-    # Overall mean
-    overall_mean = sum(n * m for n, m in zip(n_requests, means)) / n_requests 
+    # Global mean
+    overall_mean = sum(n * m for n, m in zip(n_requests, means)) / sum(n_requests) 
 
-    # Pooled variance
+    # Global std (within + between)
     sum_sq_diff = sum((n - 1) * (std ** 2) for n, std in zip(n_requests, stds))
     sum_sq_mean_diff = sum(n * (m - overall_mean) ** 2 for n, m in zip(n_requests, means))
-    pooled_var = (sum_sq_diff + sum_sq_mean_diff) / (total_n - 1) if total_n > 1 else 0
+    
+    pooled_var = (sum_sq_diff + sum_sq_mean_diff) / (sum(n_requests) - 1) if sum(n_requests) > 1 else 0
     pooled_std = math.sqrt(pooled_var)
 
-    # Max and min completion tokens
     overall_max = max(s['tokens']['max_completion'] for s in batch_summary_list)
     overall_min = min(s['tokens']['min_completion'] for s in batch_summary_list)
 
