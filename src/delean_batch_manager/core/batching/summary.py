@@ -239,16 +239,18 @@ def aggregate_completion_tokens_stats(batch_summary_list):
     counts = [s['tokens']['completion'] for s in batch_summary_list]
     means = [s['tokens']['avg_completion'] for s in batch_summary_list]
     stds = [s['tokens']['std_completion'] for s in batch_summary_list]
-    total_n = len(counts)
+    total_n = sum(counts)
     if total_n == 0:
         return 0, 0, 0, 0, 0
 
-    # Weighted mean
-    overall_mean = sum(n * m for n, m in zip(counts, means)) / total_n
+    n_requests = [s['requests']['total'] for s in batch_summary_list]
+
+    # Overall mean
+    overall_mean = sum(n * m for n, m in zip(n_requests, means)) / n_requests 
 
     # Pooled variance
-    sum_sq_diff = sum((n - 1) * (std ** 2) for n, std in zip(counts, stds))
-    sum_sq_mean_diff = sum(n * (m - overall_mean) ** 2 for n, m in zip(counts, means))
+    sum_sq_diff = sum((n - 1) * (std ** 2) for n, std in zip(n_requests, stds))
+    sum_sq_mean_diff = sum(n * (m - overall_mean) ** 2 for n, m in zip(n_requests, means))
     pooled_var = (sum_sq_diff + sum_sq_mean_diff) / (total_n - 1) if total_n > 1 else 0
     pooled_std = math.sqrt(pooled_var)
 
